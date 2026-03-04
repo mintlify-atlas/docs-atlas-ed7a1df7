@@ -1,0 +1,399 @@
+---
+title: Installation
+description: Step-by-step guide to installing and configuring the Windows 10 to 11 migration automation
+---
+
+## Clone the Repository
+
+First, clone the automation repository to your Ansible control node:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone <repository-url>
+    cd migra_to_w11
+    ```
+  </Step>
+  
+  <Step title="Verify repository structure">
+    ```bash
+    ls -la
+    ```
+    
+    You should see:
+    - `ansible.cfg` - Ansible configuration
+    - `maquinas` - Inventory file
+    - `requirements.yml` - Required collections
+    - `migra_w10_to_w11.yml` - Main playbook
+    - `roles/` - Ansible roles directory
+  </Step>
+</Steps>
+
+## Install Ansible and Dependencies
+
+### Install Ansible
+
+<CodeGroup>
+  ```bash Ubuntu/Debian
+  sudo apt update
+  sudo apt install ansible python3-pip -y
+  ```
+  
+  ```bash RHEL/CentOS
+  sudo yum install epel-release -y
+  sudo yum install ansible python3-pip -y
+  ```
+  
+  ```bash macOS
+  brew install ansible
+  ```
+  
+  ```bash pip
+  pip3 install ansible
+  ```
+</CodeGroup>
+
+### Verify Ansible Installation
+
+```bash
+ansible --version
+```
+
+<Note>
+Ensure you have Ansible 2.12 or higher. The output should show the Ansible version, Python version, and configuration file location.
+</Note>
+
+### Install Required Collections
+
+Install the necessary Ansible collections from the requirements file:
+
+```bash
+ansible-galaxy collection install -r requirements.yml
+```
+
+This will install the `community.windows` collection which provides essential Windows automation modules.
+
+<Accordion title="Verify Collection Installation">
+  ```bash
+  ansible-galaxy collection list | grep community.windows
+  ```
+  
+  You should see output similar to:
+  ```
+  community.windows    1.13.0
+  ```
+</Accordion>
+
+## Configure the Inventory File
+
+The inventory file `maquinas` defines your target Windows systems and connection parameters.
+
+### Understanding the Inventory Structure
+
+Here's the default inventory configuration:
+
+```ini maquinas
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+ansible_port = 5986
+ansible_connection = winrm
+ansible_winrm_transport = ntlm
+ansible_winrm_server_cert_validation = ignore
+
+[windows_sql]
+w10
+```
+
+### Configuration Parameters
+
+<ParamField path="ansible_user" type="string" required>
+  Windows username with administrative privileges
+  
+  Default: `ansible`
+</ParamField>
+
+<ParamField path="ansible_password" type="string" required>
+  Password for the administrative user
+  
+  Default: `ansible123`
+</ParamField>
+
+<ParamField path="ansible_port" type="number" required>
+  WinRM port for HTTPS connections
+  
+  Default: `5986` (HTTPS) or `5985` (HTTP)
+</ParamField>
+
+<ParamField path="ansible_connection" type="string" required>
+  Connection plugin to use
+  
+  Default: `winrm`
+</ParamField>
+
+<ParamField path="ansible_winrm_transport" type="string" required>
+  Authentication mechanism
+  
+  Default: `ntlm`
+</ParamField>
+
+<ParamField path="ansible_winrm_server_cert_validation" type="string">
+  Certificate validation mode
+  
+  Default: `ignore` (development only)
+</ParamField>
+
+### Customize for Your Environment
+
+<Steps>
+  <Step title="Edit the inventory file">
+    ```bash
+    nano maquinas
+    # or
+    vim maquinas
+    ```
+  </Step>
+  
+  <Step title="Update credentials">
+    Replace `ansible` and `ansible123` with your actual Windows administrative credentials:
+    
+    ```ini
+    ansible_user = your_admin_user
+    ansible_password = your_secure_password
+    ```
+  </Step>
+  
+  <Step title="Add target systems">
+    Add your Windows 10 systems under the `[windows_sql]` group:
+    
+    ```ini
+    [windows_sql]
+    win10-pc1.domain.com
+    win10-pc2.domain.com
+    192.168.1.100
+    ```
+    
+    You can use hostnames, FQDNs, or IP addresses.
+  </Step>
+</Steps>
+
+<Warning>
+The inventory file contains sensitive credentials. Ensure proper file permissions:
+
+```bash
+chmod 600 maquinas
+```
+
+For production environments, use Ansible Vault to encrypt credentials:
+
+```bash
+ansible-vault encrypt_string 'your_password' --name 'ansible_password'
+```
+</Warning>
+
+## Set Up WinRM on Target Systems
+
+WinRM must be configured on each target Windows system before Ansible can connect.
+
+### Automated WinRM Configuration (Recommended)
+
+The project includes a PowerShell script for automated WinRM setup:
+
+<Steps>
+  <Step title="Copy the WinRM script to target system">
+    Copy `roles/fase_2/files/WinRM.ps1` to your Windows 10 system.
+  </Step>
+  
+  <Step title="Open PowerShell as Administrator">
+    Right-click PowerShell and select "Run as Administrator"
+  </Step>
+  
+  <Step title="Execute the configuration script">
+    ```powershell
+    Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+    .\WinRM.ps1 -SkipNetworkProfileCheck
+    ```
+  </Step>
+  
+  <Step title="Verify WinRM status">
+    ```powershell
+    winrm get winrm/config
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="What does the WinRM script configure?">
+  The script performs the following configurations:
+  
+  - Enables PowerShell Remoting
+  - Creates self-signed SSL certificate for HTTPS
+  - Configures WinRM listeners for HTTP (5985) and HTTPS (5986)
+  - Enables NTLM authentication
+  - Sets `LocalAccountTokenFilterPolicy` for local admin accounts
+  - Configures firewall rules for WinRM
+  - Tests connectivity
+</Accordion>
+
+### Manual WinRM Configuration (Alternative)
+
+If you prefer manual configuration:
+
+<CodeGroup>
+  ```powershell Quick Setup
+  # Enable WinRM with default settings
+  Enable-PSRemoting -Force
+  
+  # Allow unencrypted connections (development only)
+  Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true
+  
+  # Configure firewall
+  netsh advfirewall firewall add rule name="WinRM-HTTP" dir=in localport=5985 protocol=TCP action=allow
+  ```
+  
+  ```powershell Secure Setup (HTTPS)
+  # Create self-signed certificate
+  $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+  
+  # Create HTTPS listener
+  New-Item -Path WSMan:\LocalHost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint -Force
+  
+  # Configure firewall
+  netsh advfirewall firewall add rule name="WinRM-HTTPS" dir=in localport=5986 protocol=TCP action=allow
+  ```
+</CodeGroup>
+
+<Tip>
+For production environments, use the HTTPS configuration with valid certificates from your Certificate Authority instead of self-signed certificates.
+</Tip>
+
+## Verify the Setup
+
+Test connectivity between your Ansible control node and target Windows systems:
+
+### Test WinRM Connectivity
+
+<Steps>
+  <Step title="Test with ansible ping">
+    ```bash
+    ansible all -i maquinas -m win_ping
+    ```
+    
+    Expected output:
+    ```json
+    w10 | SUCCESS => {
+        "changed": false,
+        "ping": "pong"
+    }
+    ```
+  </Step>
+  
+  <Step title="Gather system facts">
+    ```bash
+    ansible all -i maquinas -m setup -a "filter=ansible_distribution*"
+    ```
+    
+    This should return Windows version information.
+  </Step>
+</Steps>
+
+### Verify Ansible Configuration
+
+Check the Ansible configuration file:
+
+```ini ansible.cfg
+[defaults]
+inventory=maquinas
+```
+
+This sets `maquinas` as the default inventory, so you don't need to specify `-i maquinas` with every command.
+
+<Accordion title="Test without -i flag">
+  Since `maquinas` is set as the default inventory:
+  
+  ```bash
+  ansible all -m win_ping
+  ```
+  
+  This should work the same as the previous command.
+</Accordion>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection timeout errors">
+    **Problem**: Cannot connect to Windows host
+    
+    **Solutions**:
+    - Verify WinRM service is running: `Get-Service WinRM`
+    - Check firewall rules allow ports 5985/5986
+    - Ensure network connectivity: `ping <target-host>`
+    - Verify credentials in inventory file
+    - Check that NTLM authentication is enabled:
+      ```powershell
+      Get-Item WSMan:\localhost\Service\Auth\Basic
+      Get-Item WSMan:\localhost\Service\Auth\NTLM
+      ```
+  </Accordion>
+  
+  <Accordion title="Authentication failures">
+    **Problem**: "401 Unauthorized" or authentication errors
+    
+    **Solutions**:
+    - Verify user has administrative privileges
+    - Check username and password in inventory
+    - Enable basic auth if needed (development only):
+      ```powershell
+      Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true
+      ```
+    - Verify LocalAccountTokenFilterPolicy is set:
+      ```powershell
+      Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name LocalAccountTokenFilterPolicy
+      ```
+  </Accordion>
+  
+  <Accordion title="SSL certificate errors">
+    **Problem**: Certificate validation failures
+    
+    **Solutions**:
+    - For development, use `ansible_winrm_server_cert_validation: ignore` in inventory
+    - For production, install valid CA-signed certificates
+    - Verify HTTPS listener:
+      ```powershell
+      Get-ChildItem WSMan:\localhost\Listener
+      ```
+  </Accordion>
+  
+  <Accordion title="Module not found errors">
+    **Problem**: "could not find module" errors
+    
+    **Solutions**:
+    - Reinstall community.windows collection:
+      ```bash
+      ansible-galaxy collection install community.windows --force
+      ```
+    - Verify collection path:
+      ```bash
+      ansible-galaxy collection list
+      ```
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+If you encounter persistent connection issues, check the Windows Event Viewer on the target system under:
+
+**Applications and Services Logs → Microsoft → Windows → Windows Remote Management → Operational**
+
+This log contains detailed WinRM connection attempts and errors.
+</Warning>
+
+## Next Steps
+
+With installation complete and connectivity verified, you're ready to execute the migration:
+
+<Card title="Start Migration" icon="rocket" href="/guide/overview">
+  Proceed to the Migration Guide to run the automated Windows 10 to 11 upgrade
+</Card>
+
+<Tip>
+Before running in production, test the migration on a single non-critical system to familiarize yourself with the process and validate your configuration.
+</Tip>

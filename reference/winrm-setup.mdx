@@ -1,0 +1,400 @@
+---
+title: WinRM Setup
+description: Comprehensive guide to WinRM configuration for Windows 10 to 11 migration automation
+icon: network-wired
+---
+
+## What is WinRM?
+
+Windows Remote Management (WinRM) is Microsoft's implementation of the WS-Management protocol, which allows administrators to remotely manage Windows systems. It provides a standardized way for different hardware and operating systems to interact.
+
+### Why WinRM is Required
+
+WinRM is essential for this automation project because:
+
+- **Remote Execution**: Ansible uses WinRM to connect to Windows hosts and execute PowerShell commands remotely
+- **Authentication**: Provides secure authentication mechanisms for remote connections
+- **Session Management**: Maintains persistent connections for running multiple commands
+- **Post-Upgrade Connectivity**: Ensures Ansible can reconnect after the Windows 11 upgrade completes
+
+<Warning>
+The WinRM configuration script uses self-signed certificates and authentication mechanisms intended for **development and evaluation environments only**. Production environments should use CA-signed certificates and secure authentication mechanisms such as Kerberos.
+</Warning>
+
+## WinRM.ps1 Script Purpose
+
+The `WinRM.ps1` script (located at `roles/fase_2/files/WinRM.ps1`) is based on Ansible's official remote configuration script. It automatically configures a Windows host for remote management by:
+
+1. **Verifying WinRM Service**: Checks if WinRM is installed and running
+2. **Enabling PS Remoting**: Configures PowerShell remoting for Ansible connectivity
+3. **Creating SSL Certificates**: Generates self-signed certificates for HTTPS communication
+4. **Configuring Listeners**: Sets up HTTP and HTTPS listeners on ports 5985 and 5986
+5. **Setting Authentication**: Enables basic authentication for Ansible connections
+6. **Configuring Firewall**: Opens necessary firewall ports for WinRM traffic
+
+## Key Features of the Script
+
+### SSL Certificate Generation
+
+The script creates legacy self-signed certificates compatible with Windows Server 2012 R2 and later:
+
+```powershell
+Function New-LegacySelfSignedCert {
+    Param (
+        [string]$SubjectName,
+        [int]$ValidDays = 1095
+    )
+
+    # Creates a 4096-bit RSA certificate
+    $key = New-Object -COM "X509Enrollment.CX509PrivateKey.1"
+    $key.ProviderName = "Microsoft Enhanced RSA and AES Cryptographic Provider"
+    $key.KeySpec = 1
+    $key.Length = 4096
+    $key.MachineContext = 1
+    $key.Create()
+
+    # Certificate valid for 1095 days (3 years) by default
+    $cert.NotBefore = (Get-Date).AddDays(-1)
+    $cert.NotAfter = $cert.NotBefore.AddDays($ValidDays)
+}
+```
+
+**Certificate Features**:
+- 4096-bit RSA encryption
+- SHA256 signature algorithm
+- Valid for 3 years (1095 days) by default
+- Includes both hostname and FQDN in Subject Alternative Name
+
+### Authentication Configuration
+
+The script configures basic authentication for Ansible:
+
+```powershell
+# Enable basic authentication
+If (($basicAuthSetting.Value) -eq $false) {
+    Write-Verbose "Enabling basic auth support."
+    Set-Item -Path "WSMan:\localhost\Service\Auth\Basic" -Value $true
+    Write-ProgressLog "Enabled basic auth support."
+}
+```
+
+<Note>
+Basic authentication is enabled by default. Use the `-DisableBasicAuth` parameter to disable it. CredSSP can be enabled with the `-EnableCredSSP` parameter.
+</Note>
+
+### Firewall Rule Configuration
+
+The script automatically creates firewall rules for WinRM HTTPS traffic:
+
+```powershell
+# Configure firewall to allow WinRM HTTPS connections
+$fwtest1 = netsh advfirewall firewall show rule name="Allow WinRM HTTPS"
+If ($fwtest1.count -lt 5) {
+    Write-Verbose "Adding firewall rule to allow WinRM HTTPS."
+    netsh advfirewall firewall add rule profile=any name="Allow WinRM HTTPS" dir=in localport=5986 protocol=TCP action=allow
+    Write-ProgressLog "Added firewall rule to allow WinRM HTTPS."
+}
+```
+
+**Firewall Rules Created**:
+- Port 5985 (HTTP) - Default WinRM listener
+- Port 5986 (HTTPS) - Secure WinRM listener with SSL
+
+### LocalAccountTokenFilterPolicy
+
+The script configures the registry to allow local account authentication:
+
+```powershell
+# Ensure LocalAccountTokenFilterPolicy is set to 1
+$token_path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+$token_prop_name = "LocalAccountTokenFilterPolicy"
+if ($token_value -ne 1) {
+    New-ItemProperty -Path $token_path -Name $token_prop_name -Value 1 -PropertyType DWORD > $null
+}
+```
+
+This setting is required to resolve Ansible connectivity issues with local accounts.
+
+## Automated WinRM Configuration
+
+The playbook automatically configures WinRM through several tasks:
+
+### 1. Scheduled Task Creation
+
+A scheduled task is created **before the upgrade** to restore WinRM configuration after reboot:
+
+```yaml
+pre_tasks:
+  - name: Crear Tarea Programada para recuperar Script WinRM
+    community.windows.win_scheduled_task:
+      name: "WinRM Setup"
+      description: "Restaurar Configuración de WinRM"
+      actions:
+        - path: "powershell.exe"
+          arguments: "-NoProfile -ExecutionPolicy Bypass -File C:/temp/ansible/PS/WinRM.ps1"
+      triggers:
+        - type: boot
+      state: present
+      enabled: true
+      user: "SYSTEM"
+      logon_type: service_account
+```
+
+**Scheduled Task Details**:
+- **Name**: WinRM Setup
+- **Trigger**: At system boot
+- **User**: SYSTEM account (highest privileges)
+- **Execution Policy**: Bypass (allows script execution)
+- **Purpose**: Automatically reconfigures WinRM after Windows 11 upgrade
+
+### 2. Script Deployment
+
+The WinRM script is copied to the target system during Phase 2:
+
+```yaml
+- name: 1.1 Crear directorio PS
+  ansible.windows.win_file:
+    path: "{{ fase_2_dir_whynotwin11 }}/PS"
+    state: directory
+
+- name: 1.3 Copiar PS a Directorio
+  ansible.windows.win_copy:
+    src: roles/fase_2/files/WinRM.ps1
+    dest: "{{ fase_2_dir_whynotwin11 }}/PS/WinRM.ps1"
+    remote_src: false
+```
+
+**Default Location**: `C:/temp/ansible/PS/WinRM.ps1`
+
+## Manual WinRM Setup Instructions
+
+If you need to manually configure WinRM on a Windows system:
+
+### Quick Setup
+
+1. **Download and Run the Script**:
+
+```powershell
+# Set TLS 1.2 for secure download
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Download the script
+$url = "https://raw.githubusercontent.com/ansible/ansible-documentation/devel/examples/scripts/ConfigureRemotingForAnsible.ps1"
+$file = "$env:temp\ConfigureRemotingForAnsible.ps1"
+(New-Object -TypeName System.Net.WebClient).DownloadFile($url, $file)
+
+# Run with administrator privileges
+powershell.exe -ExecutionPolicy ByPass -File $file
+```
+
+2. **Verify WinRM Configuration**:
+
+```powershell
+winrm enumerate winrm/config/Listener
+```
+
+### Script Parameters
+
+The WinRM.ps1 script supports several optional parameters:
+
+| Parameter | Description | Default |
+|-----------|-------------|----------|
+| `-SubjectName` | CN name of the certificate | `$env:COMPUTERNAME` |
+| `-CertValidityDays` | Certificate validity period | `1095` (3 years) |
+| `-SkipNetworkProfileCheck` | Skip network profile validation | `false` |
+| `-ForceNewSSLCert` | Force new SSL certificate creation | `false` |
+| `-EnableCredSSP` | Enable CredSSP authentication | `false` |
+| `-DisableBasicAuth` | Disable basic authentication | `false` |
+| `-GlobalHttpFirewallAccess` | Enable global HTTP firewall access | `false` |
+
+**Example with Custom Parameters**:
+
+```powershell
+.\WinRM.ps1 -CertValidityDays 3650 -SkipNetworkProfileCheck -Verbose
+```
+
+## Testing WinRM Connectivity
+
+### Local Testing
+
+Test WinRM on the local machine:
+
+```powershell
+# Test HTTP connection
+$httpResult = Invoke-Command -ComputerName "localhost" -ScriptBlock { $env:COMPUTERNAME }
+
+# Test HTTPS connection
+$httpsOptions = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+$httpsResult = New-PSSession -UseSSL -ComputerName "localhost" -SessionOption $httpsOptions
+
+if ($httpResult -and $httpsResult) {
+    Write-Output "HTTP: Enabled | HTTPS: Enabled"
+}
+```
+
+### Remote Testing from Ansible Controller
+
+Test connectivity from your Ansible control node:
+
+```bash
+# Test with ansible ping module
+ansible windows_host -m win_ping
+
+# Test with PowerShell command
+ansible windows_host -m win_shell -a "hostname"
+```
+
+### Diagnostic Commands
+
+Check WinRM service status:
+
+```powershell
+# Check service status
+Get-Service WinRM
+
+# View WinRM configuration
+winrm get winrm/config
+
+# Check listeners
+Get-ChildItem WSMan:\localhost\Listener
+
+# View authentication settings
+Get-Item WSMan:\localhost\Service\Auth\*
+
+# Check firewall rules
+Get-NetFirewallRule -DisplayName "*WinRM*" | Select-Object DisplayName, Enabled, Direction
+```
+
+## Security Considerations
+
+<Warning>
+**Production Environment Warnings**:
+
+1. **Self-Signed Certificates**: Replace with CA-signed certificates
+2. **Basic Authentication**: Use Kerberos or NTLM for production
+3. **Network Isolation**: Limit WinRM access to management networks only
+4. **Firewall Rules**: Restrict source IPs to Ansible controller only
+</Warning>
+
+### Best Practices
+
+#### For Development/Testing
+
+- Use the automated WinRM.ps1 script for quick setup
+- Enable basic authentication for simplicity
+- Self-signed certificates are acceptable
+- Network profile checks can be skipped
+
+#### For Production
+
+1. **Use Domain Authentication**:
+   - Configure Kerberos authentication
+   - Use domain accounts instead of local accounts
+   - Disable basic authentication
+
+2. **Certificate Management**:
+   - Obtain certificates from your organization's CA
+   - Set appropriate certificate validity periods
+   - Implement certificate rotation policies
+
+3. **Network Security**:
+   ```powershell
+   # Restrict WinRM to specific IPs
+   Set-Item WSMan:\localhost\Service\IPv4Filter -Value "192.168.1.100,192.168.1.101"
+   ```
+
+4. **Audit and Logging**:
+   - Enable WinRM event logging
+   - Monitor failed authentication attempts
+   - Review Event Viewer logs regularly
+
+### Event Logging
+
+The WinRM.ps1 script logs all activities to the Windows Application Event Log:
+
+```powershell
+Function Write-ProgressLog {
+    $Message = $args[0]
+    Write-EventLog -LogName Application -Source $EventSource -EntryType Information -EventId 1 -Message $Message
+}
+```
+
+**View WinRM Script Events**:
+
+```powershell
+Get-EventLog -LogName Application -Source "WinRM.ps1" -Newest 50
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### WinRM Service Not Starting
+
+```powershell
+# Check service status
+Get-Service WinRM
+
+# Start service manually
+Set-Service -Name "WinRM" -StartupType Automatic
+Start-Service -Name "WinRM"
+```
+
+#### Firewall Blocking Connections
+
+```powershell
+# Check if firewall rules exist
+netsh advfirewall firewall show rule name="Allow WinRM HTTPS"
+
+# Manually add rule if missing
+netsh advfirewall firewall add rule profile=any name="Allow WinRM HTTPS" dir=in localport=5986 protocol=TCP action=allow
+```
+
+#### Certificate Errors
+
+```powershell
+# List WinRM certificates
+Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -like "*$env:COMPUTERNAME*" }
+
+# Force new certificate creation
+.\WinRM.ps1 -ForceNewSSLCert
+```
+
+#### Authentication Failures
+
+```powershell
+# Verify LocalAccountTokenFilterPolicy
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy"
+
+# Set if missing
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -PropertyType DWORD -Force
+```
+
+### Connection Timeout Issues
+
+If Ansible experiences timeouts after the Windows 11 upgrade:
+
+1. **Verify scheduled task ran**:
+   ```powershell
+   Get-ScheduledTask -TaskName "WinRM Setup" | Get-ScheduledTaskInfo
+   ```
+
+2. **Manually run the script**:
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\temp\ansible\PS\WinRM.ps1
+   ```
+
+3. **Check WinRM listeners**:
+   ```powershell
+   winrm enumerate winrm/config/Listener
+   ```
+
+## Additional Resources
+
+- [Microsoft WinRM Documentation](https://docs.microsoft.com/en-us/windows/win32/winrm/portal)
+- [Ansible Windows Setup Guide](https://docs.ansible.com/ansible/latest/user_guide/windows_setup.html)
+- [WS-Management Protocol Specification](https://www.dmtf.org/standards/ws-man)
+
+<Note>
+The scheduled task ensures WinRM is automatically reconfigured after the Windows 11 upgrade, maintaining Ansible connectivity throughout the migration process.
+</Note>

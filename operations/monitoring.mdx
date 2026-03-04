@@ -1,0 +1,282 @@
+---
+title: Monitoring Migration Progress
+description: Learn how to monitor the Windows 10 to 11 migration process, check logs, and verify system state
+---
+
+Monitoring the migration process is crucial to ensure successful upgrades and quickly identify any issues. This guide covers how to track playbook execution and verify system state.
+
+## Monitoring Playbook Execution
+
+When running the migration playbook, Ansible provides real-time output that shows the progress of each task.
+
+### Running in Verbose Mode
+
+For detailed execution information, run the playbook with verbose flags:
+
+```bash
+ansible-playbook -i inventory.ini migra_w10_to_w11.yml -v
+```
+
+Verbosity levels:
+- `-v` - Shows task results
+- `-vv` - Shows task results and task configuration
+- `-vvv` - Includes connection debugging information
+- `-vvvv` - Adds extra verbosity options to connection debugging
+
+### Key Phases to Monitor
+
+The migration process consists of two main phases:
+
+<Steps>
+  <Step title="Phase 1: Pre-Upgrade Validation">
+    - Operating system validation
+    - Hardware compatibility check using WhyNotWin11
+    - System restore point creation
+    - Windows Update application
+  </Step>
+  
+  <Step title="Phase 2: Upgrade Execution">
+    - WinRM configuration
+    - ISO mounting
+    - Windows 11 installation
+    - System reboot and verification
+  </Step>
+</Steps>
+
+## Understanding Ansible Output
+
+Ansible uses color-coded output to indicate task status:
+
+- **Green (ok)**: Task completed successfully without changes
+- **Yellow (changed)**: Task completed successfully and made changes
+- **Red (failed)**: Task failed to execute
+- **Purple (skipped)**: Task was skipped due to conditions
+
+### Common Output Patterns
+
+<Accordion title="Successful Task Execution">
+```
+TASK [fase_1 : 1.1 Validacion de Sistema Operativo] ***********************
+ok: [hostname] => {
+    "msg": "El Sistema Operativo SI es Windows 10 Pro"
+}
+```
+</Accordion>
+
+<Accordion title="Failed Task with Error Handling">
+```
+TASK [fase_1 : 1.1 Validacion de Sistema Operativo] ***********************
+fatal: [hostname]: FAILED! => {
+    "msg": "El Sistema Operativo NO es Windows 10 Pro"
+}
+```
+The playbook includes rescue blocks that handle errors gracefully and log incompatible hosts.
+</Accordion>
+
+## Checking Compatibility Reports
+
+During Phase 1, the playbook generates compatibility reports for each target system.
+
+### Report Location
+
+Compatibility reports are saved in:
+```
+roles/fase_1/files/<hostname>-compatibility_report.txt
+```
+
+### Report Format
+
+Each report contains the following hardware validation results:
+
+```
+Reporte de Compatibilidad para: HOSTNAME
+-----------------------------------------------
+- Architecture: True/False
+- Boot Method: True/False
+- CPU Compatibility: True/False
+- CPU Core Count: True/False
+- CPU Frequency: True/False
+- DirectX + WDDM2: True/False
+- Disk Partition: True/False
+- Ram Installed: True/False
+- Secure Boot: True/False
+- Storage Available: True/False
+- TPM Version: True/False
+```
+
+### Interpreting Results
+
+<Warning>
+All compatibility checks must return `True` for the migration to proceed. If any check returns `False`, the system is not compatible with Windows 11.
+</Warning>
+
+<Accordion title="Architecture Requirements">
+**Required**: 64-bit CPU and 64-bit OS
+
+If `False`, the system is running 32-bit architecture and cannot be upgraded.
+</Accordion>
+
+<Accordion title="Boot Method Requirements">
+**Required**: UEFI boot mode
+
+If `False`, the system is using Legacy BIOS. You may need to convert to UEFI or enable it in BIOS settings.
+</Accordion>
+
+<Accordion title="CPU Compatibility Requirements">
+**Required**: Intel Core 8th Gen+ or AMD Ryzen 2000+
+
+If `False`, the CPU is not on Microsoft's compatibility list for Windows 11.
+</Accordion>
+
+<Accordion title="TPM Version Requirements">
+**Required**: TPM 2.0 enabled
+
+If `False`, TPM 2.0 is either not present or not enabled in BIOS/UEFI settings.
+</Accordion>
+
+### Non-Compliant Hosts Log
+
+Systems that fail OS validation are logged in:
+```
+roles/fase_1/files/not_compliant_hosts.log
+```
+
+## Checking Upgrade Reports
+
+After Phase 2 completion, upgrade reports verify the successful migration.
+
+### Report Location
+
+Upgrade reports are saved in:
+```
+roles/fase_2/files/<hostname>-upgrade_report.txt
+```
+
+### Report Contents
+
+```
+Reporte de Actualizacion para: HOSTNAME
+-----------------------------------------------
+- Version SO: Microsoft Windows 11 Pro
+- Architecture: 64-bit
+```
+
+This confirms the system is now running Windows 11.
+
+## Verifying System State After Migration
+
+After the playbook completes, perform these verification steps:
+
+<Steps>
+  <Step title="Check Windows Version">
+    On the target system, run:
+    ```powershell
+    Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
+    ```
+    Should show "Microsoft Windows 11 Pro"
+  </Step>
+  
+  <Step title="Verify WinRM Connectivity">
+    From the Ansible controller:
+    ```bash
+    ansible -i inventory.ini <hostname> -m win_ping
+    ```
+    Should return `pong` if WinRM is configured correctly.
+  </Step>
+  
+  <Step title="Check System Restore Point">
+    On the target system:
+    ```powershell
+    Get-ComputerRestorePoint | Where-Object {$_.Description -eq "Pre-Windows11-Migration"}
+    ```
+    Verify the restore point was created before migration.
+  </Step>
+  
+  <Step title="Review Windows Update Status">
+    ```powershell
+    Get-WindowsUpdate -ComputerName localhost
+    ```
+    Ensure all updates were applied successfully.
+  </Step>
+</Steps>
+
+## Log File Locations
+
+Various logs are generated during the migration process:
+
+### On Target Windows Systems
+
+<Card title="Primary Log Directory" icon="folder">
+**Location**: `C:\temp\ansible`
+
+This directory contains:
+- WhyNotWin11.exe and compatibility CSV files
+- WinRM.ps1 configuration script
+- Windows 11 ISO file
+- Setup log files copied during installation (via `/copylogs` parameter)
+</Card>
+
+### Windows Setup Logs
+
+```
+C:\temp\ansible\*.log
+C:\$Windows.~BT\Sources\Panther\setupact.log
+C:\$Windows.~BT\Sources\Panther\setuperr.log
+```
+
+These logs contain detailed information about the Windows 11 setup process.
+
+<Accordion title="setupact.log">
+Contains the main setup activity log with timestamps for each setup phase:
+- Downlevel phase (running from Windows 10)
+- SafeOS phase (Windows PE environment)
+- First boot phase (initial Windows 11 startup)
+</Accordion>
+
+<Accordion title="setuperr.log">
+Contains only errors and warnings encountered during setup. An empty file indicates no errors.
+</Accordion>
+
+### Ansible Controller Logs
+
+On your Ansible controller, logs are typically stored in:
+
+```bash
+~/.ansible/ansible.log  # If logging is enabled in ansible.cfg
+```
+
+Enable logging by adding to `ansible.cfg`:
+```ini
+[defaults]
+log_path = /var/log/ansible.log
+```
+
+## Real-Time Monitoring Tips
+
+<Card title="Monitor Multiple Hosts" icon="eye">
+When migrating multiple systems, use `tmux` or `screen` to maintain persistent sessions:
+
+```bash
+tmux new-session -s migration
+ansible-playbook -i inventory.ini migra_w10_to_w11.yml
+```
+
+Detach with `Ctrl+B, D` and reattach with `tmux attach -t migration`
+</Card>
+
+<Card title="Save Output to File" icon="file-text">
+Capture complete playbook output:
+
+```bash
+ansible-playbook -i inventory.ini migra_w10_to_w11.yml | tee migration-$(date +%Y%m%d-%H%M%S).log
+```
+</Card>
+
+<Warning>
+The upgrade process includes extended reboot timeouts (up to 1 hour). Do not interrupt the playbook during the reboot phase even if it appears to be hanging.
+</Warning>
+
+## Next Steps
+
+- Learn about [rollback procedures](/operations/rollback) if migration fails
+- Review [common troubleshooting scenarios](/operations/troubleshooting)

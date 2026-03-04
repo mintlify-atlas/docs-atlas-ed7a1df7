@@ -1,0 +1,230 @@
+---
+title: Prerequisites
+description: System, software, and network requirements for Windows 10 to 11 migration automation
+---
+
+## Ansible Requirements
+
+The automation requires a control node with Ansible installed to execute the playbooks against target Windows systems.
+
+### Ansible Version
+
+- **Ansible Core**: 2.12 or higher recommended
+- **Python**: 3.8 or higher
+
+### Required Ansible Collections
+
+The following Ansible collections must be installed on your control node:
+
+```yaml requirements.yml
+collections:
+  - name: community.windows
+```
+
+Install the required collections using:
+
+```bash
+ansible-galaxy collection install -r requirements.yml
+```
+
+<Note>
+The `community.windows` collection provides essential Windows automation modules including `win_scheduled_task`, `win_regedit`, `win_updates`, and more.
+</Note>
+
+## Windows Environment Requirements
+
+### Operating System
+
+Target systems must meet the following OS requirements:
+
+- **Required OS**: Windows 10 Pro
+- **Architecture**: 64-bit
+- **Updates**: System should be able to receive Windows Updates
+
+<Warning>
+The automation specifically validates for Windows 10 Pro. Other editions (Home, Enterprise, Education) are not supported in the current configuration.
+</Warning>
+
+### User Credentials
+
+You need administrative credentials for target Windows systems:
+
+- **User Account**: Administrator or user with local admin rights
+- **Authentication**: NTLM authentication
+- **Permissions**: Full administrative access to install updates and modify system settings
+
+### PowerShell
+
+Target systems require:
+
+- **PowerShell Version**: 3.0 or higher
+- **Execution Policy**: Able to run scripts (configured by WinRM setup)
+
+## Hardware Requirements for Windows 11
+
+Target systems must meet Microsoft's Windows 11 hardware requirements. The automation validates these using WhyNotWin11:
+
+### Processor
+
+<ParamField path="CPU Compatibility" type="string" required>
+  - **Intel**: 8th Generation (Coffee Lake) or newer (Core i3/i5/i7/i9)
+  - **AMD**: Ryzen 3/5/7/9 2000 series or newer, or Threadripper 2000 series or newer
+</ParamField>
+
+<ParamField path="CPU Cores" type="number" required>
+  Minimum 2 cores
+</ParamField>
+
+<ParamField path="CPU Frequency" type="string" required>
+  1 GHz or faster
+</ParamField>
+
+### Memory and Storage
+
+<ParamField path="RAM" type="string" required>
+  4 GB or more
+</ParamField>
+
+<ParamField path="Storage" type="string" required>
+  64 GB or larger storage device (C: drive)
+</ParamField>
+
+### Firmware and Security
+
+<ParamField path="Boot Method" type="string" required>
+  UEFI firmware (Legacy BIOS not supported)
+</ParamField>
+
+<ParamField path="Secure Boot" type="boolean" required>
+  Must be enabled in UEFI firmware
+</ParamField>
+
+<ParamField path="TPM" type="string" required>
+  Trusted Platform Module 2.0 must be present and enabled
+</ParamField>
+
+<ParamField path="Disk Partition" type="string" required>
+  GPT partition style (MBR not supported)
+</ParamField>
+
+### Graphics
+
+<ParamField path="DirectX" type="string" required>
+  DirectX 12 or later with WDDM 2.x driver
+</ParamField>
+
+<ParamField path="Architecture" type="string" required>
+  64-bit CPU and 64-bit OS
+</ParamField>
+
+<Note>
+The automation performs comprehensive hardware validation in Phase 1 using WhyNotWin11. Systems that don't meet these requirements will be identified and logged without attempting the upgrade.
+</Note>
+
+## Network Requirements
+
+### WinRM Configuration
+
+Windows Remote Management (WinRM) must be configured on target systems for Ansible connectivity:
+
+<ParamField path="WinRM Ports" type="object" required>
+  - **HTTPS (Recommended)**: TCP port 5986
+  - **HTTP (Development only)**: TCP port 5985
+</ParamField>
+
+<ParamField path="Connection Type" type="string" required>
+  `winrm` - Windows Remote Management protocol
+</ParamField>
+
+<ParamField path="Transport" type="string" required>
+  `ntlm` - NT LAN Manager authentication
+</ParamField>
+
+<ParamField path="Certificate Validation" type="string">
+  For development environments, certificate validation can be ignored. Production environments should use valid certificates.
+</ParamField>
+
+### Firewall Rules
+
+Ensure the following firewall rules are configured:
+
+<AccordionGroup>
+  <Accordion title="WinRM HTTPS (Port 5986)">
+    ```powershell
+    netsh advfirewall firewall add rule profile=any name="Allow WinRM HTTPS" dir=in localport=5986 protocol=TCP action=allow
+    ```
+    
+    This rule is automatically configured by the WinRM setup script.
+  </Accordion>
+  
+  <Accordion title="WinRM HTTP (Port 5985)">
+    ```powershell
+    netsh advfirewall firewall add rule profile=any name="Allow WinRM HTTP" dir=in localport=5985 protocol=TCP action=allow
+    ```
+    
+    Only needed if using HTTP transport (not recommended for production).
+  </Accordion>
+</AccordionGroup>
+
+### Network Connectivity
+
+- **Control Node to Targets**: Network connectivity from Ansible control node to all target Windows systems
+- **Internet Access**: Target systems need internet access to:
+  - Download Windows 11 updates (registry method)
+  - Access Windows Update servers
+  - Download patches and feature updates
+
+<Warning>
+If using the ISO method, ensure sufficient network bandwidth between the control node and target systems, as the Windows 11 ISO file (~5 GB) will be copied to each target.
+</Warning>
+
+## Additional Requirements
+
+### Disk Space
+
+<Tabs>
+  <Tab title="Target Systems">
+    - **Minimum**: 64 GB free space on C: drive
+    - **Recommended**: 80+ GB free space to accommodate:
+      - Windows 11 installation files
+      - Temporary upgrade files
+      - System restore point data
+      - Post-upgrade cleanup
+  </Tab>
+  
+  <Tab title="Control Node">
+    - **For ISO Method**: ~5 GB to store Windows 11 ISO file in the repository
+    - **For Registry Method**: Minimal space required
+  </Tab>
+</Tabs>
+
+### Time Allocation
+
+Plan for adequate time to complete the migration:
+
+- **Phase 1 (Validation)**: 10-30 minutes per system
+- **Phase 2 (Upgrade)**: 1-3 hours per system depending on hardware and network speed
+- **Total Process**: 2-4 hours per system for complete migration
+
+<Tip>
+Schedule migrations during maintenance windows to minimize disruption. The automation handles reboots automatically but systems will be unavailable during the upgrade process.
+</Tip>
+
+## Environment Preparation Checklist
+
+Before proceeding to installation, verify:
+
+- [ ] Ansible 2.12+ installed on control node
+- [ ] Python 3.8+ available
+- [ ] Target systems running Windows 10 Pro 64-bit
+- [ ] Administrative credentials available
+- [ ] Network connectivity between control node and targets
+- [ ] WinRM ports (5985/5986) accessible
+- [ ] Internet access available on target systems
+- [ ] Sufficient disk space on target systems (64+ GB free)
+- [ ] Backup/restore strategy in place
+- [ ] Maintenance window scheduled
+
+<Check>
+Once you've verified all prerequisites, proceed to [Installation](/installation) to set up the automation.
+</Check>

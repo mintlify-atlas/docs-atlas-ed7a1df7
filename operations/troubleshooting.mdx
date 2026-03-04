@@ -1,0 +1,615 @@
+---
+title: Troubleshooting Common Issues
+description: Solutions for common problems encountered during Windows 10 to 11 migration
+---
+
+This guide covers common issues you may encounter during the migration process and their solutions.
+
+## WinRM Connection Failures
+
+WinRM (Windows Remote Management) is required for Ansible to communicate with Windows hosts.
+
+### Issue: Cannot Connect to Host
+
+<Accordion title="Error: Connection timeout or refused">
+**Symptom**: Ansible cannot establish connection to Windows host.
+
+```
+fatal: [hostname]: UNREACHABLE! => {
+    "msg": "Failed to connect to the host via winrm"
+}
+```
+
+**Solutions**:
+
+1. Verify WinRM service is running on target:
+   ```powershell
+   Get-Service WinRM
+   # Should show Status: Running
+   ```
+
+2. Start WinRM if stopped:
+   ```powershell
+   Start-Service WinRM
+   Set-Service -Name WinRM -StartupType Automatic
+   ```
+
+3. Check firewall rules:
+   ```powershell
+   netsh advfirewall firewall show rule name="Allow WinRM HTTPS"
+   ```
+
+4. Test WinRM listener:
+   ```powershell
+   Test-WSMan -ComputerName localhost
+   ```
+
+5. Verify inventory configuration:
+   ```ini
+   ansible_connection=winrm
+   ansible_winrm_transport=ntlm
+   ansible_winrm_server_cert_validation=ignore
+   ansible_port=5986
+   ```
+</Accordion>
+
+<Accordion title="Error: Authentication Failed">
+**Symptom**: Connection established but authentication fails.
+
+```
+fatal: [hostname]: UNREACHABLE! => {
+    "msg": "plaintext: the specified credentials were rejected by the server"
+}
+```
+
+**Solutions**:
+
+1. Verify credentials in inventory:
+   ```ini
+   ansible_user=Administrator
+   ansible_password=YourPassword
+   ```
+
+2. Check LocalAccountTokenFilterPolicy registry key:
+   ```powershell
+   Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy
+   # Should be 1
+   ```
+
+3. Set if missing:
+   ```powershell
+   New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWORD -Force
+   ```
+
+4. Use the WinRM configuration script:
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File C:\temp\ansible\PS\WinRM.ps1
+   ```
+</Accordion>
+
+<Accordion title="WinRM Lost After Reboot">
+**Symptom**: WinRM works initially but fails after system reboot during migration.
+
+**Solutions**:
+
+The playbook includes a scheduled task to restore WinRM configuration after reboot (migra_w10_to_w11.yml:7-19):
+
+1. Verify scheduled task exists:
+   ```powershell
+   Get-ScheduledTask -TaskName "WinRM Setup"
+   ```
+
+2. Run task manually if needed:
+   ```powershell
+   Start-ScheduledTask -TaskName "WinRM Setup"
+   ```
+
+3. Check task history:
+   ```powershell
+   Get-ScheduledTask -TaskName "WinRM Setup" | Get-ScheduledTaskInfo
+   ```
+
+4. Ensure WinRM.ps1 script is in place:
+   ```powershell
+   Test-Path C:\temp\ansible\PS\WinRM.ps1
+   ```
+</Accordion>
+
+## Compatibility Check Failures
+
+The WhyNotWin11 tool checks hardware compatibility during Phase 1.
+
+### Incompatible Hardware Detected
+
+<Accordion title="TPM 2.0 Not Found or Disabled">
+**Symptom**: Compatibility report shows `TPM Version: False`
+
+**Solutions**:
+
+1. Check if TPM chip exists:
+   ```powershell
+   Get-Tpm
+   ```
+
+2. Enable TPM in BIOS/UEFI:
+   - Restart computer and enter BIOS/UEFI (usually F2, Del, or F10)
+   - Navigate to Security settings
+   - Enable "TPM Device" or "Security Device"
+   - Save and exit
+
+3. Verify TPM is enabled and version 2.0:
+   ```powershell
+   Get-Tpm | Select-Object TpmPresent, TpmReady, TpmEnabled, ManufacturerVersion
+   ```
+
+4. Initialize TPM if present but not ready:
+   ```powershell
+   Initialize-Tpm
+   ```
+
+<Warning>
+Some older systems do not have TPM 2.0 chips and cannot be upgraded without hardware replacement.
+</Warning>
+</Accordion>
+
+<Accordion title="Secure Boot Not Enabled">
+**Symptom**: Compatibility report shows `Secure Boot: False`
+
+**Solutions**:
+
+1. Check Secure Boot status:
+   ```powershell
+   Confirm-SecureBootUEFI
+   # Returns True if enabled, False if disabled, error if not supported
+   ```
+
+2. Enable Secure Boot in BIOS/UEFI:
+   - Restart computer and enter BIOS/UEFI
+   - Navigate to Boot settings or Security settings
+   - Set "Secure Boot" to "Enabled"
+   - Save and exit
+
+3. Verify boot mode is UEFI (not Legacy):
+   ```powershell
+   $env:firmware_type
+   # Should return "UEFI"
+   ```
+
+<Warning>
+You cannot enable Secure Boot if the system is using Legacy BIOS boot mode. You must convert to UEFI first.
+</Warning>
+</Accordion>
+
+<Accordion title="Legacy BIOS Boot Mode (Not UEFI)">
+**Symptom**: Compatibility report shows `Boot Method: False`
+
+**Solutions**:
+
+1. Confirm current boot mode:
+   ```powershell
+   bcdedit | Select-String "path"
+   # Legacy BIOS: \windows\system32\winload.exe
+   # UEFI: \windows\system32\winload.efi
+   ```
+
+2. Check partition style:
+   ```powershell
+   Get-Disk | Select-Object Number, PartitionStyle
+   # MBR = Legacy BIOS, GPT = UEFI
+   ```
+
+3. Convert MBR to GPT without data loss:
+   ```cmd
+   mbr2gpt /validate /disk:0
+   mbr2gpt /convert /disk:0
+   ```
+
+4. Enable UEFI boot in BIOS/UEFI settings
+
+<Warning>
+Conversion from MBR to GPT requires Windows 10 version 1703 or later. Always backup data before conversion.
+</Warning>
+</Accordion>
+
+<Accordion title="Incompatible CPU">
+**Symptom**: Compatibility report shows `CPU Compatibility: False`
+
+**Solutions**:
+
+1. Check CPU model:
+   ```powershell
+   Get-CimInstance -ClassName Win32_Processor | Select-Object Name
+   ```
+
+2. Verify against Microsoft's compatibility list:
+   - [Intel processors](https://learn.microsoft.com/en-us/windows-hardware/design/minimum/supported/windows-11-supported-intel-processors)
+   - [AMD processors](https://learn.microsoft.com/en-us/windows-hardware/design/minimum/supported/windows-11-supported-amd-processors)
+
+3. If CPU is not on the list, upgrade is not officially supported
+
+<Warning>
+Unsupported CPUs cannot be upgraded through this automation. Manual workarounds exist but are not recommended for production environments.
+</Warning>
+</Accordion>
+
+<Accordion title="Insufficient Storage or RAM">
+**Symptom**: Compatibility report shows `Storage Available: False` or `Ram Installed: False`
+
+**Solutions for Storage**:
+
+1. Check available space:
+   ```powershell
+   Get-PSDrive C | Select-Object Used, Free
+   ```
+
+2. Free up space (minimum 64GB required):
+   - Run Disk Cleanup: `cleanmgr /d C:`
+   - Remove old Windows installations: `rd /s /q C:\Windows.old`
+   - Uninstall unused applications
+   - Clear temporary files: `Remove-Item -Path $env:TEMP\* -Recurse -Force`
+
+**Solutions for RAM**:
+
+1. Check installed RAM:
+   ```powershell
+   Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object TotalPhysicalMemory
+   ```
+
+2. Minimum 4GB required; 8GB recommended
+3. Add more RAM if insufficient
+</Accordion>
+
+## ISO Mounting Issues
+
+Problems mounting or accessing the Windows 11 ISO during Phase 2.
+
+<Accordion title="ISO File Not Found">
+**Symptom**: Error copying or accessing ISO file.
+
+```
+fatal: [hostname]: FAILED! => {
+    "msg": "Source file not found"
+}
+```
+
+**Solutions**:
+
+1. Verify ISO exists in source:
+   ```bash
+   ls -lh roles/fase_2/files/Win11_23H2_Spanish_Mexico_x64v2.iso
+   ```
+
+2. Check file size (should be ~5-6GB):
+   ```bash
+   du -h roles/fase_2/files/Win11_23H2_Spanish_Mexico_x64v2.iso
+   ```
+
+3. Verify ISO integrity:
+   ```bash
+   sha256sum roles/fase_2/files/Win11_23H2_Spanish_Mexico_x64v2.iso
+   ```
+
+4. Ensure sufficient disk space on target:
+   ```powershell
+   Get-PSDrive C | Select-Object Free
+   ```
+</Accordion>
+
+<Accordion title="Failed to Mount ISO">
+**Symptom**: ISO copy succeeds but mounting fails.
+
+```
+fatal: [hostname]: FAILED! => {
+    "msg": "Mount-DiskImage failed"
+}
+```
+
+**Solutions**:
+
+1. Verify ISO is not already mounted:
+   ```powershell
+   Get-DiskImage -ImagePath "C:\temp\ansible\ISO\Win11_23H2_Spanish_Mexico_x64v2.iso"
+   ```
+
+2. Dismount if already mounted:
+   ```powershell
+   Dismount-DiskImage -ImagePath "C:\temp\ansible\ISO\Win11_23H2_Spanish_Mexico_x64v2.iso"
+   ```
+
+3. Check if ISO is corrupted:
+   ```powershell
+   Mount-DiskImage -ImagePath "C:\temp\ansible\ISO\Win11_23H2_Spanish_Mexico_x64v2.iso" -PassThru
+   ```
+
+4. Ensure Virtual Disk service is running:
+   ```powershell
+   Get-Service -Name "vds" | Start-Service
+   ```
+</Accordion>
+
+<Accordion title="Cannot Find ISO Drive Letter">
+**Symptom**: ISO mounts but drive letter cannot be determined.
+
+```
+fatal: [hostname]: FAILED! => {
+    "msg": "Get-Volume failed to find label CCCOMA_X64FRE_ES-MX_DV9"
+}
+```
+
+**Solutions**:
+
+1. Check mounted volumes:
+   ```powershell
+   Get-Volume | Select-Object DriveLetter, FileSystemLabel
+   ```
+
+2. Verify ISO volume label (roles/fase_2/tasks/main.yml:59):
+   ```powershell
+   $diskImage = Mount-DiskImage -ImagePath "C:\temp\ansible\ISO\Win11_23H2_Spanish_Mexico_x64v2.iso" -PassThru
+   $diskImage | Get-Volume
+   ```
+
+3. Update playbook with correct label if different:
+   ```yaml
+   Get-Volume -FileSystemLabel "ACTUAL_LABEL_HERE" | Select-Object -ExpandProperty DriveLetter
+   ```
+</Accordion>
+
+## Windows Update Failures
+
+Issues applying updates during Phase 1 or Phase 2.
+
+<Accordion title="Update Installation Fails">
+**Symptom**: win_updates task fails with error.
+
+```
+fatal: [hostname]: FAILED! => {
+    "failed_update_count": 1,
+    "msg": "Failed to install updates"
+}
+```
+
+**Solutions**:
+
+1. Check Windows Update service:
+   ```powershell
+   Get-Service -Name wuauserv | Start-Service
+   Set-Service -Name wuauserv -StartupType Automatic
+   ```
+
+2. Clear Windows Update cache:
+   ```powershell
+   Stop-Service -Name wuauserv
+   Remove-Item -Path C:\Windows\SoftwareDistribution\* -Recurse -Force
+   Start-Service -Name wuauserv
+   ```
+
+3. Reset Windows Update components:
+   ```cmd
+   net stop wuauserv
+   net stop cryptSvc
+   net stop bits
+   net stop msiserver
+   ren C:\Windows\SoftwareDistribution SoftwareDistribution.old
+   ren C:\Windows\System32\catroot2 catroot2.old
+   net start wuauserv
+   net start cryptSvc
+   net start bits
+   net start msiserver
+   ```
+
+4. Run Windows Update troubleshooter:
+   ```powershell
+   msdt.exe /id WindowsUpdateDiagnostic
+   ```
+</Accordion>
+
+<Accordion title="Updates Download But Won't Install">
+**Symptom**: Updates download successfully but fail during installation.
+
+**Solutions**:
+
+1. Check disk space:
+   ```powershell
+   Get-PSDrive C | Select-Object Free
+   # Need at least 10GB free
+   ```
+
+2. Run System File Checker:
+   ```cmd
+   sfc /scannow
+   ```
+
+3. Run DISM repair:
+   ```cmd
+   DISM /Online /Cleanup-Image /RestoreHealth
+   ```
+
+4. Check CBS log for errors:
+   ```powershell
+   Get-Content C:\Windows\Logs\CBS\CBS.log | Select-String "Error"
+   ```
+</Accordion>
+
+## Reboot Timeout Issues
+
+System takes longer than expected to reboot during migration.
+
+<Accordion title="Reboot Exceeds Timeout">
+**Symptom**: Playbook fails with reboot timeout error.
+
+```
+fatal: [hostname]: FAILED! => {
+    "msg": "Timed out waiting for boot"
+}
+```
+
+**Solutions**:
+
+1. The playbook uses extended timeout (3600 seconds = 1 hour) for upgrade reboot (roles/fase_2/tasks/main.yml:82)
+
+2. If timeout still occurs, increase timeout in playbook:
+   ```yaml
+   ansible.windows.win_reboot:
+     reboot_timeout: 7200  # 2 hours
+   ```
+
+3. Check if system is actually rebooting:
+   - Connect via physical console or IPMI/iLO
+   - Look for setup screens or update progress
+
+4. Common causes:
+   - Hardware initialization delay
+   - Firmware updates
+   - Multiple Windows updates installing
+   - Disk encryption/decryption
+
+<Warning>
+Do not forcefully interrupt the reboot process. Windows 11 setup may take 30-90 minutes on first boot.
+</Warning>
+</Accordion>
+
+<Accordion title="System Stuck on Setup Screen">
+**Symptom**: System reboots but hangs on Windows setup screen.
+
+**Solutions**:
+
+1. Wait at least 2 hours before intervening
+
+2. Check setup logs via alternate boot:
+   - Boot to Windows PE or recovery
+   - Check `C:\$Windows.~BT\Sources\Panther\setupact.log`
+   - Look for errors in `setuperr.log`
+
+3. If truly stuck, boot to recovery and:
+   - Use System Restore to roll back
+   - Check hardware compatibility again
+
+4. Common causes:
+   - Driver incompatibility
+   - Disk errors
+   - Insufficient resources
+</Accordion>
+
+## Common Error Messages
+
+<Accordion title="Error: 0x80070070 - Not Enough Space">
+**Cause**: Insufficient disk space for installation.
+
+**Solutions**:
+1. Free up at least 20GB on C: drive
+2. Use Disk Cleanup to remove temporary files
+3. Uninstall unused applications
+4. Move user files to another drive
+</Accordion>
+
+<Accordion title="Error: 0xC1900101 - Driver Error">
+**Cause**: Incompatible or outdated drivers.
+
+**Solutions**:
+1. Update all drivers before migration
+2. Remove problematic hardware temporarily
+3. Check manufacturer website for Windows 11 compatible drivers
+4. Review setupact.log for specific driver causing issue
+</Accordion>
+
+<Accordion title="Error: 0x80070003 - Path Not Found">
+**Cause**: Setup cannot find required files.
+
+**Solutions**:
+1. Verify ISO integrity and re-copy if needed
+2. Check that ISO is properly mounted
+3. Ensure setup.exe is accessible at mounted drive letter
+4. Run setup with full path specification
+</Accordion>
+
+<Accordion title="Error: 0xC1900208 - Incompatible Apps">
+**Cause**: Installed applications block upgrade.
+
+**Solutions**:
+1. Identify blocking apps:
+   ```powershell
+   Get-AppxPackage | Where-Object {$_.NonRemovable -eq $false}
+   ```
+
+2. Uninstall problematic applications
+3. Check Windows 11 app compatibility list
+4. Re-run setup after removal
+</Accordion>
+
+## How to Access Logs and Debug Information
+
+### Playbook Execution Logs
+
+<Steps>
+  <Step title="Enable Ansible Logging">
+    Add to `ansible.cfg`:
+    ```ini
+    [defaults]
+    log_path = /var/log/ansible.log
+    ```
+  </Step>
+  
+  <Step title="Run with Increased Verbosity">
+    ```bash
+    ansible-playbook -i inventory.ini migra_w10_to_w11.yml -vvv
+    ```
+  </Step>
+  
+  <Step title="Save Output to File">
+    ```bash
+    ansible-playbook -i inventory.ini migra_w10_to_w11.yml 2>&1 | tee migration.log
+    ```
+  </Step>
+</Steps>
+
+### Windows Setup Logs
+
+Key log locations on target systems:
+
+```
+C:\temp\ansible\               # Playbook working directory
+C:\$Windows.~BT\Sources\Panther\setupact.log  # Main setup log
+C:\$Windows.~BT\Sources\Panther\setuperr.log  # Setup errors
+C:\Windows\Panther\            # Post-installation logs
+```
+
+### Viewing Windows Event Logs
+
+```powershell
+# Application errors during migration
+Get-EventLog -LogName Application -After (Get-Date).AddHours(-24) -EntryType Error
+
+# System events
+Get-EventLog -LogName System -After (Get-Date).AddHours(-24) -EntryType Error,Warning
+
+# Setup events
+Get-WinEvent -FilterHashtable @{LogName='Setup';Level=2,3} -MaxEvents 50
+```
+
+### WinRM Debugging
+
+```powershell
+# Enable WinRM logging
+Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true
+Set-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB -Value 1024
+
+# View WinRM configuration
+winrm get winrm/config
+
+# Test WinRM connectivity
+Test-WSMan -ComputerName localhost -Credential (Get-Credential)
+```
+
+## Getting Additional Help
+
+<Card title="Useful Resources" icon="book">
+- [Windows 11 Setup Error Codes](https://learn.microsoft.com/en-us/windows/deployment/upgrade/resolve-windows-upgrade-errors)
+- [Ansible Windows Documentation](https://docs.ansible.com/ansible/latest/user_guide/windows.html)
+- Review [monitoring guide](/operations/monitoring) for log locations
+- Check [rollback procedures](/operations/rollback) if migration must be reversed
+</Card>
+
+<Warning>
+Always review compatibility reports and test on non-production systems before deploying to production environments.
+</Warning>

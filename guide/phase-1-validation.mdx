@@ -1,0 +1,342 @@
+---
+title: Phase 1 - Pre-Upgrade Validation
+description: Hardware compatibility validation and system preparation before Windows 11 upgrade
+---
+
+Phase 1 validates system compatibility and prepares the Windows 10 system for upgrade. This phase is non-destructive and performs comprehensive checks before proceeding to the actual upgrade.
+
+## Overview
+
+Phase 1 consists of four main tasks:
+
+1. Operating System validation
+2. Hardware compatibility verification using WhyNotWin11
+3. System restore point creation
+4. Windows update application
+
+The phase is implemented in the `fase_1` role and is triggered in the main playbook:
+
+```yaml
+- name: FASE 1 - PRE-UPGRADE
+  block:
+    - name: 1 - Validación y Ejecución de Requisitos
+      ansible.builtin.include_role:
+        name: fase_1
+```
+
+## Task 1: Operating System Validation
+
+The first task confirms that the target system is running Windows 10 Pro:
+
+```yaml
+- name: 1.1 Validacion de Sistema Operativo
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Microsoft Windows 10 Pro"
+    success_msg: "El Sistema Operativo SI es Windows 10 Pro"
+    fail_msg: "El Sistema Operativo NO es Windows 10 Pro"
+  register: so_out
+```
+
+<Warning>
+  If the system is not running Windows 10 Pro, the validation fails and the playbook stops execution. Non-compliant hosts are logged to `roles/fase_1/files/not_compliant_hosts.log`.
+</Warning>
+
+### Error Handling
+
+If OS validation fails:
+
+1. Error message is displayed
+2. Hostname is logged to the non-compliant hosts file
+3. Execution is halted for that host
+4. Other hosts in the inventory continue execution
+
+## Task 2: Hardware Compatibility Verification
+
+This is the most comprehensive task in Phase 1, using the WhyNotWin11 tool to validate all Windows 11 hardware requirements.
+
+### WhyNotWin11 Setup
+
+The tool is deployed to the target system:
+
+```yaml
+- name: 2.1 Crear Directorio de 'WhyNotWin11' (si no existe)
+  ansible.windows.win_file:
+    path: "{{ fase_1_dir_whynotwin11 }}"
+    state: directory
+
+- name: 2.3 Copiar 'WhyNotWin11' a Directorio
+  ansible.windows.win_copy:
+    src: roles/fase_1/files/WhyNotWin11.exe
+    dest: "{{ fase_1_dir_whynotwin11 }}/WhyNotWin11.exe"
+    remote_src: false
+```
+
+### Compatibility Scan Execution
+
+WhyNotWin11 runs in silent mode and generates a CSV report:
+
+```yaml
+- name: 2.7 Ejecutar 'WhyNotWin11' (silencioso) y Generar Archivo CSV
+  ansible.windows.win_shell: |
+    {{ fase_1_dir_whynotwin11 }}/WhyNotWin11.exe /e CSV {{ fase_1_dir_whynotwin11 }}/Salida_Compatibilidad.csv /s
+  args:
+    executable: powershell.exe
+  register: whynotwin11_output
+```
+
+### Compatibility Checks Performed
+
+The tool validates 11 critical Windows 11 requirements. Results are parsed from the CSV output:
+
+<Accordion title="View All Compatibility Checks (roles/fase_1/tasks/main.yml:94-106)">
+```yaml
+- name: 2.9 Analizar la Compatibilidad del PC
+  ansible.builtin.set_fact:
+    architecture: "{{ csv_content.stdout_lines[1].split(',')[1] }}"
+    boot_method: "{{ csv_content.stdout_lines[1].split(',')[2] }}"
+    cpu_compatibility: "{{ csv_content.stdout_lines[1].split(',')[3] }}"
+    cpu_core_count: "{{ csv_content.stdout_lines[1].split(',')[4] }}"
+    cpu_frequency: "{{ csv_content.stdout_lines[1].split(',')[5] }}"
+    directx_wddm2: "{{ csv_content.stdout_lines[1].split(',')[6] }}"
+    disk_partition_type: "{{ csv_content.stdout_lines[1].split(',')[7] }}"
+    ram_installed: "{{ csv_content.stdout_lines[1].split(',')[8] }}"
+    secure_boot: "{{ csv_content.stdout_lines[1].split(',')[9] }}"
+    storage_available: "{{ csv_content.stdout_lines[1].split(',')[10] }}"
+    tmp_version: "{{ csv_content.stdout_lines[1].split(',')[11] }}"
+  when: csv_content.stdout_lines | length > 1
+```
+</Accordion>
+
+### Windows 11 Requirements Table
+
+| Requirement | Expected Value | Variable Name |
+|-------------|---------------|---------------|
+| **Architecture** | 64-bit CPU and OS | `architecture` |
+| **Boot Method** | UEFI | `boot_method` |
+| **CPU Compatibility** | Intel Core 8th Gen+ or AMD Ryzen 2000+ | `cpu_compatibility` |
+| **CPU Core Count** | 2 or more cores | `cpu_core_count` |
+| **CPU Frequency** | 1 GHz or faster | `cpu_frequency` |
+| **DirectX + WDDM2** | DirectX 12 with WDDM 2.x | `directx_wddm2` |
+| **Disk Partition** | GPT partition style | `disk_partition_type` |
+| **RAM Installed** | 4 GB or more | `ram_installed` |
+| **Secure Boot** | Enabled | `secure_boot` |
+| **Storage Available** | 64 GB or more on C: drive | `storage_available` |
+| **TPM Version** | TPM 2.0 enabled | `tpm_version` |
+
+### Compatibility Determination
+
+All checks must pass for the system to be considered compatible:
+
+```yaml
+- name: 2.12 Validar si el PC es Compatible con Windows 11
+  ansible.builtin.set_fact:
+    compatible: true
+  when:
+    - architecture == 'True'
+    - boot_method == 'True'
+    - cpu_compatibility == 'True'
+    - cpu_core_count == 'True'
+    - cpu_frequency == 'True'
+    - directx_wddm2 == 'True'
+    - disk_partition_type == 'True'
+    - ram_installed == 'True'
+    - secure_boot == 'True'
+    - storage_available == 'True'
+    - tpm_version == 'True'
+```
+
+<Note>
+  The `compatible` variable is used in Phase 2 to determine whether to proceed with the upgrade. If any check fails, `compatible` remains `false` and Phase 2 is skipped.
+</Note>
+
+### Compatibility Report Generation
+
+A detailed compatibility report is saved for each host:
+
+```yaml
+- name: 2.14 Generar reporte de compatibilidad
+  ansible.builtin.copy:
+    content: |
+      Reporte de Compatibilidad para: {{ ansible_fqdn }}
+      -----------------------------------------------
+      - Architecture: {{ architecture }}
+      - Boot Method: {{ boot_method }}
+      - CPU Compatibility: {{ cpu_compatibility }}
+      - CPU Core Count: {{ cpu_core_count }}
+      - CPU Frequency: {{ cpu_frequency }}
+      - DirectX + WDDM2: {{ directx_wddm2 }}
+      - Disk Partition: {{ disk_partition_type }}
+      - Ram Installed: {{ ram_installed }}
+      - Secure Boot: {{ secure_boot }}
+      - Storage Available: {{ storage_available }}
+      - TPM Version: {{ tmp_version }}
+    dest: roles/fase_1/files/{{ ansible_fqdn }}-compatibility_report.txt
+    mode: "0644"
+```
+
+Report location: `roles/fase_1/files/<hostname>-compatibility_report.txt`
+
+## Task 3: System Restore Point Creation
+
+A critical safety feature - creates a restore point before any system modifications:
+
+```yaml
+- name: 3.1 Comprobar el estado de Proteccion del Sistema
+  ansible.windows.win_shell: |
+    (Get-ComputerRestorePoint).SequenceNumber
+  args:
+    executable: powershell.exe
+  changed_when: false
+  register: restore_points
+
+- name: 3.2 Activar la Proteccion del Sistema (si no esta activo)
+  ansible.windows.win_shell: |
+    Enable-ComputerRestore -Drive C:
+  when: restore_points.stdout == ""
+  register: activate_out
+
+- name: 3.3 Crear Punto de Restauracion
+  ansible.windows.win_shell: |
+    Checkpoint-Computer -Description "Pre-Windows11-Migration" -RestorePointType "MODIFY_SETTINGS"
+  args:
+    executable: powershell.exe
+  register: create_point
+```
+
+<Accordion title="Manual Restore Point Recovery">
+If you need to manually roll back to the restore point:
+
+1. Open System Properties (Win + Pause/Break)
+2. Click "System Protection" tab
+3. Click "System Restore" button
+4. Select "Pre-Windows11-Migration" restore point
+5. Follow the wizard to complete the restoration
+
+Or use PowerShell:
+
+```powershell
+# List restore points
+Get-ComputerRestorePoint
+
+# Restore to specific point (run as Administrator)
+Restore-Computer -RestorePoint <SequenceNumber>
+```
+</Accordion>
+
+<Warning>
+  System Protection must be enabled on the C: drive for restore points to work. The playbook automatically enables it if disabled.
+</Warning>
+
+## Task 4: Windows Update Application
+
+Ensures the Windows 10 system is fully updated before upgrading:
+
+```yaml
+- name: 4.1 Validar si hay reinicios pendientes (reiniciar en caso +)
+  ansible.windows.win_reboot:
+  when: ansible_reboot_pending
+
+- name: 4.2 Aplicar parches de ser Necesario
+  ansible.windows.win_updates:
+    category_names: "*"
+    reboot: true
+  register: update_results
+  retries: 3
+  delay: 120
+  until: update_results.failed_update_count == 0
+```
+
+### Update Process
+
+<Steps>
+  <Step title="Check for Pending Reboots">
+    If the system has pending reboots from previous updates, it reboots first.
+  </Step>
+  
+  <Step title="Apply All Updates">
+    Downloads and installs all available Windows updates across all categories.
+  </Step>
+  
+  <Step title="Automatic Reboot">
+    Reboots the system if required by any installed update.
+  </Step>
+  
+  <Step title="Retry Logic">
+    Retries up to 3 times with 2-minute delays if any updates fail.
+  </Step>
+</Steps>
+
+<Note>
+  This task can take 10-60 minutes depending on the number of pending updates and network speed.
+</Note>
+
+## Phase 1 Execution Conditions
+
+Phase 1 tasks run conditionally based on system state:
+
+- **Task 1 (OS Validation)**: Always runs
+- **Task 2 (Compatibility)**: Only if OS is Windows 10 Pro
+- **Task 3 (Restore Point)**: Only if compatible AND Windows 10 Pro
+- **Task 4 (Updates)**: Only if compatible AND Windows 10 Pro
+
+```yaml
+when:
+  - not compatible # Note: Change to 'compatible' in production
+  - ansible_distribution == "Microsoft Windows 10 Pro"
+```
+
+<Warning>
+  In the source code, the condition is set to `not compatible` for testing purposes. Change this to `compatible` for production deployments.
+</Warning>
+
+## Troubleshooting Phase 1
+
+### Common Issues
+
+<Accordion title="WhyNotWin11 Execution Fails">
+**Symptom**: Task 2.7 fails to execute WhyNotWin11.exe
+
+**Solutions**:
+- Verify the executable exists in `roles/fase_1/files/WhyNotWin11.exe`
+- Check Windows Defender or antivirus isn't blocking execution
+- Ensure target directory has write permissions
+- Verify PowerShell execution policy allows script execution
+</Accordion>
+
+<Accordion title="Restore Point Creation Fails">
+**Symptom**: Task 3.3 fails with PowerShell errors
+
+**Solutions**:
+- Verify System Protection is available on the system SKU
+- Check available disk space (minimum 300 MB required)
+- Ensure VSS (Volume Shadow Copy) service is running
+- Run as Administrator with sufficient privileges
+</Accordion>
+
+<Accordion title="Windows Updates Hang or Timeout">
+**Symptom**: Task 4.2 times out or never completes
+
+**Solutions**:
+- Increase the WinRM timeout in Ansible configuration
+- Check Windows Update service status
+- Verify network connectivity to Microsoft update servers
+- Clear Windows Update cache: `Stop-Service wuauserv; Remove-Item C:\Windows\SoftwareDistribution\* -Recurse; Start-Service wuauserv`
+</Accordion>
+
+## Next Steps
+
+After successful Phase 1 completion:
+
+1. Review the compatibility report in `roles/fase_1/files/<hostname>-compatibility_report.txt`
+2. Verify the `compatible` variable is set to `true`
+3. Proceed to [Phase 2: Upgrade Execution](/guide/phase-2-upgrade)
+
+<CardGroup cols={2}>
+  <Card title="Phase 2 Upgrade" icon="rocket" href="/guide/phase-2-upgrade">
+    Learn about the upgrade execution methods
+  </Card>
+  <Card title="Execution Guide" icon="play" href="/guide/execution">
+    Run the complete migration playbook
+  </Card>
+</CardGroup>

@@ -1,0 +1,151 @@
+---
+title: Migration Process Overview
+description: Understanding the two-phase approach to Windows 10 to 11 migration
+---
+
+This automation provides a comprehensive, safe, and repeatable process to migrate Windows 10 Pro systems to Windows 11. The migration follows a structured two-phase approach with built-in safety mechanisms.
+
+## Two-Phase Approach
+
+The migration is divided into two distinct phases to ensure system compatibility and minimize risk:
+
+<Steps>
+  <Step title="Phase 1: Pre-Upgrade Validation">
+    Validates hardware compatibility, creates system restore points, and applies necessary Windows updates before attempting the upgrade.
+  </Step>
+  
+  <Step title="Phase 2: Upgrade Execution">
+    Performs the actual Windows 11 upgrade using one of two methods: registry-based Windows Update or ISO-based installation.
+  </Step>
+</Steps>
+
+## Phase 1: Pre-Upgrade Validation and Preparation
+
+Phase 1 ensures your system is ready for the Windows 11 upgrade:
+
+- **Operating System Validation**: Confirms the system is running Windows 10 Pro
+- **Hardware Compatibility Check**: Uses WhyNotWin11 tool to verify all Windows 11 requirements
+- **System Restore Point**: Creates a "Pre-Windows11-Migration" restore point for rollback capability
+- **Windows Updates**: Applies all pending Windows 10 updates to ensure the system is current
+
+<Note>
+  Phase 1 is non-destructive and performs read-only compatibility checks. If the system is not compatible, the migration stops before making any changes.
+</Note>
+
+## Phase 2: Upgrade Execution
+
+Phase 2 performs the actual upgrade using one of two methods:
+
+<Tabs>
+  <Tab title="Registry-Based Method">
+    **Recommended for most scenarios**
+    
+    This method modifies Windows Update registry settings to trigger Windows 11 upgrade through the standard update mechanism:
+    
+    - Configures registry keys to target Windows 11 23H2
+    - Uses Windows Update infrastructure
+    - Automatically downloads and installs Windows 11
+    - Restores original registry settings after completion
+  </Tab>
+  
+  <Tab title="ISO-Based Method">
+    **For air-gapped or controlled environments**
+    
+    This method uses a local Windows 11 ISO file:
+    
+    - Mounts Windows 11 23H2 ISO (Spanish Mexico x64)
+    - Executes setup.exe with automated parameters
+    - Runs offline without internet dependency
+    - Suitable for environments with restricted internet access
+  </Tab>
+</Tabs>
+
+## Timeline and Duration Expectations
+
+The migration duration varies based on hardware specifications and network speed:
+
+| Phase | Typical Duration | Notes |
+|-------|-----------------|-------|
+| Phase 1 - OS Validation | 1-2 minutes | Quick validation step |
+| Phase 1 - Compatibility Check | 2-5 minutes | WhyNotWin11 hardware scan |
+| Phase 1 - System Restore Point | 5-10 minutes | Depends on disk speed |
+| Phase 1 - Windows Updates | 10-60 minutes | Varies by pending updates |
+| Phase 2 - Registry Method | 60-120 minutes | Includes download time |
+| Phase 2 - ISO Method | 45-90 minutes | No download required |
+| Post-Upgrade Updates | 20-40 minutes | Windows 11 updates |
+| **Total Time** | **2-5 hours** | End-to-end process |
+
+<Warning>
+  Multiple reboots are required throughout the process. Ensure the target system remains powered on and accessible via WinRM during the entire migration.
+</Warning>
+
+## Safety Features and Rollback Capabilities
+
+The automation includes multiple safety mechanisms:
+
+### System Restore Point
+
+A system restore point named "Pre-Windows11-Migration" is created before any changes are made. This allows manual rollback if needed:
+
+```powershell
+# Manual rollback via PowerShell
+Checkpoint-Computer -Description "Pre-Windows11-Migration" -RestorePointType "MODIFY_SETTINGS"
+```
+
+### WinRM Configuration Recovery
+
+A scheduled task is created to automatically restore WinRM configuration after reboot:
+
+- **Task Name**: "WinRM Setup"
+- **Trigger**: System boot
+- **Action**: Executes WinRM configuration script
+- **Purpose**: Ensures Ansible can reconnect after reboots
+
+### Registry Backup and Restore
+
+For the registry-based method, original registry values are preserved and automatically restored:
+
+- `ProductVersion` key backed up before modification
+- `TargetReleaseVersionInfo` key backed up before modification
+- `TargetReleaseVersion` key backed up before modification
+- All values restored after successful upgrade
+
+### Compatibility Reports
+
+Detailed reports are generated for audit and troubleshooting:
+
+- **compatibility_report.txt**: Hardware validation results
+- **upgrade_report.txt**: Post-upgrade system information
+- **not_compliant_hosts.log**: List of incompatible systems
+
+<Note>
+  Windows 11 includes a 10-day rollback window after upgrade. During this period, you can revert to Windows 10 through Settings > System > Recovery.
+</Note>
+
+## Prerequisites
+
+Before starting the migration, ensure:
+
+- Target system is running **Windows 10 Pro**
+- WinRM is configured and accessible from Ansible controller
+- User has **administrative privileges** on target system
+- System meets all **Windows 11 hardware requirements**
+- Network connectivity is stable (for registry-based method)
+- Windows 11 ISO is available in `roles/fase_2/files/` (for ISO-based method)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Phase 1 Details" icon="magnifying-glass" href="/guide/phase-1-validation">
+    Learn about hardware validation and compatibility checks
+  </Card>
+  <Card title="Phase 2 Details" icon="rocket" href="/guide/phase-2-upgrade">
+    Understand the upgrade execution methods
+  </Card>
+  <Card title="Running the Playbook" icon="play" href="/guide/execution">
+    Execute the migration and monitor progress
+  </Card>
+  <Card title="Configuration" icon="gear" href="/reference/variables">
+    Configure playbook variables and settings
+  </Card>
+</CardGroup>

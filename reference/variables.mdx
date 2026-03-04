@@ -1,0 +1,306 @@
+---
+title: Variables Reference
+description: Configuration variables for the Windows 10 to 11 migration automation
+---
+
+## Overview
+
+This reference documents all configurable variables used in the Windows 10 to 11 migration automation, including role defaults, playbook-level variables, and facts collected during execution.
+
+## Role Variables
+
+### Phase 1 Variables (Pre-Upgrade)
+
+Defined in `roles/fase_1/defaults/main.yml`:
+
+<ParamField path="fase_1_dir_whynotwin11" type="string" default="C:\temp\ansible">
+  The directory on the Windows host where WhyNotWin11 tool and compatibility reports will be stored during Phase 1.
+  
+  **Default:** `C:\temp\ansible`
+  
+  **Usage:**
+  - Stores the WhyNotWin11.exe compatibility checker
+  - Contains the compatibility report CSV file
+  - Used for temporary files during pre-upgrade validation
+</ParamField>
+
+### Phase 2 Variables (Upgrade)
+
+Defined in `roles/fase_2/defaults/main.yml`:
+
+<ParamField path="fase_2_dir_whynotwin11" type="string" default="C:\temp\ansible">
+  The directory on the Windows host where upgrade files will be stored during Phase 2.
+  
+  **Default:** `C:\temp\ansible`
+  
+  **Usage:**
+  - Stores the Windows 11 ISO file
+  - Contains PowerShell scripts (WinRM.ps1)
+  - Used for upgrade logs and temporary files
+  - Stores migration and upgrade reports
+</ParamField>
+
+<Note>
+  Both `fase_1_dir_whynotwin11` and `fase_2_dir_whynotwin11` default to the same directory (`C:\temp\ansible`) to maintain consistency across phases.
+</Note>
+
+## Overriding Default Variables
+
+### Method 1: Playbook Variables
+
+Override variables directly in the main playbook:
+
+```yaml
+---
+- name: Migracion SO Windows 10 a 11
+  hosts: all
+  gather_facts: true
+  vars:
+    fase_1_dir_whynotwin11: C:\migration\phase1
+    fase_2_dir_whynotwin11: C:\migration\phase2
+  
+  tasks:
+    - name: FASE 1 - PRE-UPGRADE
+      ansible.builtin.include_role:
+        name: fase_1
+```
+
+### Method 2: Extra Variables
+
+Pass variables via command line when running the playbook:
+
+```bash
+ansible-playbook migra_w10_to_w11.yml \
+  -e "fase_1_dir_whynotwin11=C:\\custom\\path" \
+  -e "fase_2_dir_whynotwin11=C:\\custom\\path"
+```
+
+### Method 3: Inventory Variables
+
+Define variables in the inventory file for specific hosts or groups:
+
+```ini
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+fase_1_dir_whynotwin11 = C:\migration\phase1
+fase_2_dir_whynotwin11 = C:\migration\phase2
+
+[windows_sql]
+w10
+```
+
+### Method 4: Host/Group Variables Files
+
+Create variable files in `host_vars/` or `group_vars/` directories:
+
+**group_vars/windows_sql.yml:**
+```yaml
+---
+fase_1_dir_whynotwin11: C:\migration\phase1
+fase_2_dir_whynotwin11: C:\migration\phase2
+```
+
+## Playbook-Level Variables
+
+These variables are set at the playbook level in `migra_w10_to_w11.yml`:
+
+<ParamField path="gather_facts" type="boolean" default="true">
+  Controls whether Ansible gathers system information (facts) from Windows hosts before running tasks.
+  
+  **Required for:**
+  - Detecting Windows version (`ansible_distribution`)
+  - Identifying architecture (`ansible_architecture`)
+  - Checking hostname (`ansible_fqdn`, `ansible_hostname`)
+  - Detecting pending reboots (`ansible_reboot_pending`)
+</ParamField>
+
+## Facts Collected During Execution
+
+The automation collects and sets various facts during execution for decision-making and reporting.
+
+### Ansible Built-in Facts
+
+Collected automatically when `gather_facts: true`:
+
+<ParamField path="ansible_distribution" type="string">
+  The operating system distribution name.
+  
+  **Expected value:** `Microsoft Windows 10 Pro`
+  
+  **Used for:** Validating that the host is running Windows 10 before migration
+</ParamField>
+
+<ParamField path="ansible_fqdn" type="string">
+  The fully qualified domain name of the host.
+  
+  **Used for:** Generating unique report filenames and logging
+</ParamField>
+
+<ParamField path="ansible_hostname" type="string">
+  The hostname of the Windows machine.
+  
+  **Used for:** Identification in reports and logs
+</ParamField>
+
+<ParamField path="ansible_architecture" type="string">
+  The system architecture (e.g., 64-bit).
+  
+  **Used for:** Compatibility validation and reporting
+</ParamField>
+
+<ParamField path="ansible_reboot_pending" type="boolean">
+  Indicates if a system reboot is pending.
+  
+  **Used for:** Determining if a reboot is needed before migration
+</ParamField>
+
+### WhyNotWin11 Compatibility Facts
+
+Collected during Phase 1 compatibility check (set by task 2.9 in `roles/fase_1/tasks/main.yml`):
+
+<ParamField path="architecture" type="string">
+  CPU and OS architecture compatibility (64-bit).
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** 64 Bit CPU, 64 Bit OS
+</ParamField>
+
+<ParamField path="boot_method" type="string">
+  System boot method (UEFI vs Legacy BIOS).
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** UEFI boot
+</ParamField>
+
+<ParamField path="cpu_compatibility" type="string">
+  CPU model compatibility with Windows 11.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** Intel Core (i3, i5, i7, i9) 8th Gen or AMD Ryzen (3, 5, 7, 9 or Threadripper > 2000)
+</ParamField>
+
+<ParamField path="cpu_core_count" type="string">
+  Number of CPU cores.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** 2 or more cores
+</ParamField>
+
+<ParamField path="cpu_frequency" type="string">
+  CPU clock speed.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** 1 GHz or faster
+</ParamField>
+
+<ParamField path="directx_wddm2" type="string">
+  DirectX and WDDM driver version.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** DirectX 12 or later with WDDM 2.x driver
+</ParamField>
+
+<ParamField path="disk_partition_type" type="string">
+  Disk partition scheme.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** GPT partition table
+</ParamField>
+
+<ParamField path="ram_installed" type="string">
+  Amount of RAM installed.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** 4 GB or more
+</ParamField>
+
+<ParamField path="secure_boot" type="string">
+  Secure Boot status.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** Enabled
+</ParamField>
+
+<ParamField path="storage_available" type="string">
+  Available disk space on C: drive.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** 64 GB or more free space
+</ParamField>
+
+<ParamField path="tpm_version" type="string">
+  TPM (Trusted Platform Module) version.
+  
+  **Values:** `True` or `False`
+  
+  **Requirement:** TPM 2.0 enabled
+  
+  <Note>Variable name in code is `tmp_version` (typo), but represents TPM version.</Note>
+</ParamField>
+
+### Compatibility Decision Fact
+
+<ParamField path="compatible" type="boolean" default="false">
+  Overall compatibility determination based on all WhyNotWin11 checks.
+  
+  **Values:**
+  - `true` - Host meets all Windows 11 requirements
+  - `false` - Host fails one or more requirements
+  
+  **Set to `true` when:**
+  All compatibility facts (architecture, boot_method, cpu_compatibility, cpu_core_count, cpu_frequency, directx_wddm2, disk_partition_type, ram_installed, secure_boot, storage_available, tpm_version) equal `True`
+  
+  **Used for:** Controlling execution of Phase 2 upgrade tasks
+</ParamField>
+
+## Variable Precedence
+
+Ansible applies variables in the following order (highest precedence last):
+
+1. Role defaults (`roles/*/defaults/main.yml`)
+2. Inventory file variables
+3. Inventory `group_vars/` and `host_vars/`
+4. Playbook `vars`
+5. Command-line `-e` extra variables
+
+<Tip>
+  Use `-e` (extra vars) for temporary overrides during testing, and `group_vars/` or `host_vars/` for permanent environment-specific configurations.
+</Tip>
+
+## Example: Custom Configuration
+
+```yaml
+# group_vars/production.yml
+---
+# Use a dedicated drive for migration files
+fase_1_dir_whynotwin11: D:\migration\validation
+fase_2_dir_whynotwin11: D:\migration\upgrade
+
+# group_vars/development.yml
+---
+# Use default C: drive for development
+fase_1_dir_whynotwin11: C:\temp\ansible
+fase_2_dir_whynotwin11: C:\temp\ansible
+```
+
+## Related Configuration
+
+<CardGroup cols={2}>
+  <Card title="Inventory" icon="server" href="/reference/inventory">
+    Configure Windows hosts and connection settings
+  </Card>
+  <Card title="Ansible Configuration" icon="gear" href="/reference/ansible-config">
+    Global Ansible settings and defaults
+  </Card>
+</CardGroup>

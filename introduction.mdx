@@ -1,0 +1,156 @@
+---
+title: Introduction
+description: Automate the migration of Windows 10 Pro to Windows 11 with comprehensive hardware validation and two flexible migration methods
+---
+
+## What is Windows 10 to 11 Migration Automation?
+
+This Ansible-based automation solution streamlines the process of upgrading Windows 10 Pro systems to Windows 11, eliminating manual intervention while ensuring compatibility and system safety throughout the migration process.
+
+The automation handles everything from pre-flight hardware validation to post-migration configuration, with built-in safety mechanisms like automatic restore points and WinRM preservation.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Automated Hardware Validation" icon="check-circle">
+    Uses WhyNotWin11 to validate all Windows 11 requirements including TPM 2.0, Secure Boot, CPU compatibility, RAM, storage, and more
+  </Card>
+  
+  <Card title="Automatic Restore Points" icon="clock-rotate-left">
+    Creates system restore points before migration, allowing easy rollback if needed
+  </Card>
+  
+  <Card title="Two Migration Methods" icon="route">
+    Choose between registry-based Windows Update method or direct ISO installation based on your needs
+  </Card>
+  
+  <Card title="WinRM Preservation" icon="network-wired">
+    Automatically configures scheduled tasks to restore WinRM connectivity after system reboots
+  </Card>
+  
+  <Card title="Comprehensive Reporting" icon="file-chart-column">
+    Generates detailed compatibility and upgrade reports for every system processed
+  </Card>
+  
+  <Card title="Automated Patching" icon="download">
+    Handles Windows updates before and after migration with automatic retry logic
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+<CardGroup cols={3}>
+  <Card title="Prerequisites" icon="list-check" href="/prerequisites">
+    Review system and software requirements before starting
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Ansible, configure inventory, and prepare target systems
+  </Card>
+  
+  <Card title="Migration Guide" icon="rocket" href="/guide/overview">
+    Execute the two-phase migration process
+  </Card>
+</CardGroup>
+
+## Two-Phase Migration Process
+
+The automation is organized into two distinct phases, each designed to handle specific aspects of the migration:
+
+### Phase 1: Pre-Upgrade Validation
+
+The first phase ensures your system is ready for Windows 11:
+
+<Steps>
+  <Step title="Operating System Validation">
+    Verifies the target system is running Windows 10 Pro
+  </Step>
+  
+  <Step title="Hardware Compatibility Check">
+    Runs WhyNotWin11 to validate all Windows 11 requirements:
+    - 64-bit CPU and OS architecture
+    - UEFI boot method
+    - Compatible CPU (Intel 8th Gen+ or AMD Ryzen 2000+)
+    - Minimum 2 CPU cores at 1 GHz+
+    - DirectX 12 with WDDM 2.x support
+    - GPT disk partition
+    - 4 GB+ RAM
+    - Secure Boot enabled
+    - 64 GB+ available storage
+    - TPM 2.0 enabled
+  </Step>
+  
+  <Step title="Restore Point Creation">
+    Creates a system restore point named "Pre-Windows11-Migration" for safety
+  </Step>
+  
+  <Step title="Windows Updates">
+    Applies all pending Windows updates and handles necessary reboots
+  </Step>
+</Steps>
+
+### Phase 2: Upgrade Execution
+
+The second phase performs the actual migration using one of two methods:
+
+<Tabs>
+  <Tab title="Registry Method">
+    Configures Windows Update registry keys to pull Windows 11:
+    
+    <Steps>
+      <Step title="WinRM Configuration">
+        Deploys PowerShell script to restore WinRM after reboot
+      </Step>
+      
+      <Step title="Registry Configuration">
+        Sets `ProductVersion`, `TargetReleaseVersionInfo` (23H2), and `TargetReleaseVersion` keys
+      </Step>
+      
+      <Step title="Windows Update">
+        Triggers Windows Update to download and install Windows 11
+      </Step>
+      
+      <Step title="Registry Cleanup">
+        Restores original registry values after successful upgrade
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="ISO Method">
+    Directly installs Windows 11 from an ISO file:
+    
+    <Steps>
+      <Step title="ISO Deployment">
+        Copies Windows 11 ISO to target system
+      </Step>
+      
+      <Step title="ISO Mounting">
+        Mounts the ISO and identifies the drive letter
+      </Step>
+      
+      <Step title="Silent Installation">
+        Executes setup.exe with automated parameters for unattended upgrade
+      </Step>
+      
+      <Step title="Post-Install Updates">
+        Applies all pending updates to the new Windows 11 installation
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+<Note>
+Both methods include automatic WinRM configuration to maintain Ansible connectivity throughout the migration process.
+</Note>
+
+## What's Next?
+
+Ready to get started? Follow these steps:
+
+1. **Review [Prerequisites](/prerequisites)** - Ensure your environment meets all requirements
+2. **Complete [Installation](/installation)** - Set up Ansible and configure your inventory
+3. **Execute [Migration](/guide/overview)** - Run the automated migration playbook
+
+<Warning>
+This automation modifies system configurations and performs major OS upgrades. Always test in a non-production environment first and ensure you have proper backups.
+</Warning>

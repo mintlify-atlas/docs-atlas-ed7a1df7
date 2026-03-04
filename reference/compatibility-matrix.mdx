@@ -1,0 +1,460 @@
+---
+title: Compatibility Matrix
+description: Complete Windows 11 hardware requirements and validation matrix for migration automation
+icon: check-circle
+---
+
+## Overview
+
+This compatibility matrix details all hardware and firmware requirements for upgrading from Windows 10 to Windows 11. The automation project validates each requirement using **WhyNotWin11**, an open-source compatibility checker that provides binary True/False results for each criterion.
+
+<Note>
+All requirements must be met (`True`) for the migration to proceed. If any requirement fails, the PC is logged as incompatible and the upgrade process is skipped.
+</Note>
+
+## Complete Requirements Matrix
+
+### System Architecture Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **CPU Architecture** | 64-bit processor | `architecture` | `architecture == 'True'` |
+| **OS Architecture** | 64-bit operating system | Included in architecture check | `architecture == 'True'` |
+
+**Why This Matters**: Windows 11 does not support 32-bit processors or operating systems. Both the CPU and the current Windows 10 installation must be 64-bit.
+
+**Validation Message**:
+```
+Architecture: {{ architecture }} | Necesario: 64 Bit CPU, 64 Bit OS
+```
+
+---
+
+### Boot Configuration Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **Boot Method** | UEFI (Unified Extensible Firmware Interface) | `boot_method` | `boot_method == 'True'` |
+| **Disk Partition Type** | GPT (GUID Partition Table) | `disk_partition_type` | `disk_partition_type == 'True'` |
+| **Secure Boot** | Enabled | `secure_boot` | `secure_boot == 'True'` |
+
+**Why This Matters**: 
+- Legacy BIOS boot is not supported in Windows 11
+- GPT is required for UEFI boot
+- Secure Boot protects against rootkits and bootloaders
+
+**Validation Messages**:
+```
+Boot Method: {{ boot_method }} | Necesario: UEFI
+Disk Partition: {{ disk_partition_type }} | Necesario: GPT
+Secure Boot: {{ secure_boot }} | Necesario: (Habilitado)
+```
+
+<Warning>
+Converting from Legacy BIOS/MBR to UEFI/GPT requires advanced procedures and may result in data loss. Ensure systems are properly configured before attempting migration.
+</Warning>
+
+---
+
+### Processor Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **CPU Compatibility** | Intel Core 8th Gen+ **OR** AMD Ryzen 2000+ | `cpu_compatibility` | `cpu_compatibility == 'True'` |
+| **CPU Core Count** | 2 or more cores | `cpu_core_count` | `cpu_core_count == 'True'` |
+| **CPU Frequency** | 1 GHz or higher | `cpu_frequency` | `cpu_frequency == 'True'` |
+
+**Supported Intel Processors** (8th Gen and newer):
+- Intel Core i3, i5, i7, i9 (8th generation or later)
+- Intel Xeon (compatible models)
+- Intel Pentium Gold/Silver (Coffee Lake or later)
+- Intel Celeron (Gemini Lake Refresh or later)
+
+**Supported AMD Processors** (Ryzen 2000 series and newer):
+- AMD Ryzen 3, 5, 7, 9 (2000 series or later)
+- AMD Threadripper (2000 series or later)
+- AMD Athlon Gold/Silver (with Zen architecture)
+- AMD EPYC (2nd Gen or later)
+
+**Validation Messages**:
+```
+CPU Compatibility: {{ cpu_compatibility }} | Necesario: IntelCore (i3, i5, i7, i9) 8va Gen ò AMD Ryzen (3, 5, 7, 9 o Threadripper > 2000)
+CPU Core Count: {{ cpu_core_count }} | Necesario: 2 o +
+CPU Frequency: {{ cpu_frequency }} | Necesario: 1 Ghz o +
+```
+
+<Note>
+While some 7th gen Intel processors technically meet other requirements, Microsoft's official compatibility list begins with 8th generation for most models.
+</Note>
+
+---
+
+### Memory Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **RAM Installed** | 4 GB or more | `ram_installed` | `ram_installed == 'True'` |
+
+**Why This Matters**: Windows 11 requires minimum 4 GB RAM for basic functionality. Microsoft recommends 8 GB or more for optimal performance.
+
+**Validation Message**:
+```
+Ram Installed: {{ ram_installed }} | Necesario: 4 GB o +
+```
+
+<Tip>
+While 4 GB is the minimum, consider upgrading to 8 GB or more for better performance, especially for professional workloads.
+</Tip>
+
+---
+
+### Storage Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **Storage Available** | 64 GB or more on C: drive | `storage_available` | `storage_available == 'True'` |
+
+**Why This Matters**: 
+- Windows 11 installation requires approximately 20 GB
+- Additional space needed for updates, apps, and temporary files
+- 64 GB minimum ensures room for system operation
+
+**Validation Message**:
+```
+Storage Available: {{ storage_available }} | Necesario: 64 GB o + [C:]
+```
+
+---
+
+### Security Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **TPM Version** | TPM 2.0 (Enabled) | `tmp_version` | `tmp_version == 'True'` |
+
+**What is TPM?**: Trusted Platform Module is a hardware-based security chip that provides:
+- Cryptographic key generation and storage
+- Hardware-based encryption
+- Secure boot verification
+- Windows Hello and BitLocker support
+
+**Validation Message**:
+```
+TMP Version: {{ tmp_version }} | Necesario: 2.0 (Habilitado)
+```
+
+<Warning>
+**Important TPM Notes**:
+- TPM 2.0 must be **enabled** in BIOS/UEFI, not just present
+- Some systems have TPM disabled by default
+- Virtual machines may require vTPM configuration
+</Warning>
+
+**Checking TPM Status**:
+```powershell
+Get-Tpm
+```
+
+**Enabling TPM**:
+1. Restart computer and enter BIOS/UEFI (usually F2, F10, or Del)
+2. Navigate to Security settings
+3. Find TPM/Security Device/PTT settings
+4. Enable TPM 2.0
+5. Save and exit
+
+---
+
+### Graphics Requirements
+
+| Requirement | Minimum Specification | WhyNotWin11 Check | Validation Variable |
+|-------------|----------------------|-------------------|---------------------|
+| **DirectX Version** | DirectX 12 or higher | `directx_wddm2` | `directx_wddm2 == 'True'` |
+| **WDDM Version** | WDDM 2.x (Windows Display Driver Model) | Included in DirectX check | `directx_wddm2 == 'True'` |
+
+**Why This Matters**:
+- Required for Windows 11 UI rendering and effects
+- Ensures compatibility with modern graphics APIs
+- Enables features like Auto HDR and DirectStorage
+
+**Validation Message**:
+```
+DirectX + WDDM2: {{ directx_wddm2 }} | Necesario: DirectX 12 o + & WDDM2 2.x
+```
+
+**Checking Graphics Compatibility**:
+```powershell
+dxdiag
+```
+Look for DirectX Version and Driver Model information.
+
+---
+
+## Playbook Validation Process
+
+The automation validates all requirements in Phase 1 using the following workflow:
+
+### Step 1: WhyNotWin11 Deployment
+
+```yaml
+- name: 2.3 Copiar 'WhyNotWin11' a Directorio
+  ansible.windows.win_copy:
+    src: roles/fase_1/files/WhyNotWin11.exe
+    dest: "{{ fase_1_dir_whynotwin11 }}/WhyNotWin11.exe"
+    remote_src: false
+```
+
+**Location**: `C:\temp\ansible\WhyNotWin11.exe` (default)
+
+### Step 2: Compatibility Check Execution
+
+```yaml
+- name: 2.7 Ejecutar 'WhyNotWin11' (silencioso) y Generar Archivo CSV
+  ansible.windows.win_shell: |
+    {{ fase_1_dir_whynotwin11 }}/WhyNotWin11.exe /e CSV {{ fase_1_dir_whynotwin11 }}/Salida_Compatibilidad.csv /s
+  args:
+    executable: powershell.exe
+  register: whynotwin11_output
+```
+
+**Command Breakdown**:
+- `/e CSV` - Export to CSV format
+- `/s` - Silent mode (no GUI)
+- Output: `Salida_Compatibilidad.csv`
+
+### Step 3: CSV Parsing
+
+The playbook reads and parses the CSV output:
+
+```yaml
+- name: 2.9 Analizar la Compatibilidad del PC
+  ansible.builtin.set_fact:
+    architecture: "{{ csv_content.stdout_lines[1].split(',')[1] }}"
+    boot_method: "{{ csv_content.stdout_lines[1].split(',')[2] }}"
+    cpu_compatibility: "{{ csv_content.stdout_lines[1].split(',')[3] }}"
+    cpu_core_count: "{{ csv_content.stdout_lines[1].split(',')[4] }}"
+    cpu_frequency: "{{ csv_content.stdout_lines[1].split(',')[5] }}"
+    directx_wddm2: "{{ csv_content.stdout_lines[1].split(',')[6] }}"
+    disk_partition_type: "{{ csv_content.stdout_lines[1].split(',')[7] }}"
+    ram_installed: "{{ csv_content.stdout_lines[1].split(',')[8] }}"
+    secure_boot: "{{ csv_content.stdout_lines[1].split(',')[9] }}"
+    storage_available: "{{ csv_content.stdout_lines[1].split(',')[10] }}"
+    tmp_version: "{{ csv_content.stdout_lines[1].split(',')[11] }}"
+```
+
+**CSV Structure**:
+```csv
+Header,Architecture,Boot Method,CPU Compatibility,CPU Core Count,CPU Frequency,DirectX + WDDM2,Disk Partition Type,RAM Installed,Secure Boot,Storage Available,TPM Version
+Hostname,True,True,True,True,True,True,True,True,True,True,True
+```
+
+### Step 4: Debug Output
+
+All requirements are displayed for verification:
+
+```yaml
+- name: 2.10 <DEBUG> - Compatibilidad del PC
+  ansible.builtin.debug:
+    msg:
+      - "Architecture: {{ architecture }} | Necesario: 64 Bit CPU, 64 Bit OS"
+      - "Boot Method: {{ boot_method }} | Necesario: UEFI"
+      - "CPU Compatibility: {{ cpu_compatibility }} | Necesario: IntelCore (i3, i5, i7, i9) 8va Gen ò AMD Ryzen (3, 5, 7, 9 o Threadripper > 2000)"
+      - "CPU Core Count: {{ cpu_core_count }} | Necesario: 2 o +"
+      - "CPU Frequency: {{ cpu_frequency }} | Necesario: 1 Ghz o +"
+      - "DirectX + WDDM2: {{ directx_wddm2 | Necesario: DirectX 12 o + & WDDM2 2.x"
+      - "Disk Partition: {{ disk_partition_type }} | Necesario: GPT"
+      - "Ram Installed {{ ram_installed }} | Necesario: 4 GB o +"
+      - "Secure Boot: {{ secure_boot }} | Necesario: (Habilitado)"
+      - "Storage Available: {{ storage_available }} | Necesario: 64 GB o + [C:]"
+      - "TMP Version: {{ tmp_version }} | Necesario: 2.0 (Habilitado)"
+```
+
+### Step 5: Compatibility Determination
+
+The playbook validates ALL requirements must be True:
+
+```yaml
+- name: 2.12 Validar si el PC es Compatible con Windows 11
+  ansible.builtin.set_fact:
+    compatible: true
+  when:
+    - architecture == 'True'
+    - boot_method == 'True'
+    - cpu_compatibility == 'True'
+    - cpu_core_count == 'True'
+    - cpu_frequency == 'True'
+    - directx_wddm2 == 'True'
+    - disk_partition_type == 'True'
+    - ram_installed == 'True'
+    - secure_boot == 'True'
+    - storage_available == 'True'
+    - tpm_version == 'True'
+```
+
+**Compatibility Logic**:
+- Default: `compatible: false`
+- Only set to `true` when **all 11 conditions** are met
+- Used to control subsequent upgrade tasks
+
+### Step 6: Compatibility Report Generation
+
+A detailed report is saved locally:
+
+```yaml
+- name: 2.14 Generar reporte de compatibilidad
+  ansible.builtin.copy:
+    content: |
+      Reporte de Compatibilidad para: {{ ansible_fqdn }}
+      -----------------------------------------------
+      - Architecture: {{ architecture }}
+      - Boot Method: {{ boot_method }}
+      - CPU Compatibility: {{ cpu_compatibility }}
+      - CPU Core Count: {{ cpu_core_count }}
+      - CPU Frequency: {{ cpu_frequency }}
+      - DirectX + WDDM2: {{ directx_wddm2 }}
+      - Disk Partition: {{ disk_partition_type }}
+      - Ram Installed: {{ ram_installed }}
+      - Secure Boot: {{ secure_boot }}
+      - Storage Available: {{ storage_available }}
+      - TPM Version: {{ tmp_version }}
+    dest: roles/fase_1/files/{{ ansible_fqdn }}-compatibility_report.txt
+    mode: "0644"
+  delegate_to: localhost
+```
+
+**Report Location**: `roles/fase_1/files/[hostname]-compatibility_report.txt`
+
+---
+
+## What Happens If Requirements Aren't Met
+
+### Incompatible System Workflow
+
+When a PC fails compatibility checks:
+
+1. **Compatibility Flag Remains False**:
+   ```yaml
+   - name: 2.11 Valor Booleano de compatible
+     ansible.builtin.set_fact:
+       compatible: false
+   ```
+   The `compatible` variable stays `false` if any requirement fails.
+
+2. **Upgrade Tasks Are Skipped**:
+   ```yaml
+   - name: FASE 2 - UPGRADE
+     when:
+       - compatible  # Only runs if compatible == true
+       - ansible_distribution == "Microsoft Windows 10 Pro"
+   ```
+   All Phase 2 upgrade tasks have conditional execution.
+
+3. **Compatibility Report Generated**:
+   - Full report saved with all requirement statuses
+   - Report shows which specific requirements failed
+   - Stored in: `roles/fase_1/files/{{ ansible_fqdn }}-compatibility_report.txt`
+
+4. **Logged as Incompatible** (if OS validation fails):
+   ```yaml
+   - name: 1.2 Registrar PC No Compatible
+     ansible.builtin.copy:
+       content: "{{ ansible_fqdn }}: NO es compatible con Windows 10\n"
+       dest: roles/fase_1/files/not_compliant_hosts.log
+       mode: a
+   ```
+
+### Example Incompatible System Report
+
+```
+Reporte de Compatibilidad para: WORKSTATION-001.domain.local
+-----------------------------------------------
+- Architecture: True
+- Boot Method: False          ← FAILED: Legacy BIOS detected
+- CPU Compatibility: True
+- CPU Core Count: True
+- CPU Frequency: True
+- DirectX + WDDM2: True
+- Disk Partition: False       ← FAILED: MBR partition detected
+- Ram Installed: True
+- Secure Boot: False          ← FAILED: Secure Boot disabled
+- Storage Available: True
+- TPM Version: False          ← FAILED: TPM 1.2 or disabled
+```
+
+In this example, the system fails 4 requirements and would be **skipped** from the Windows 11 upgrade process.
+
+---
+
+## Requirements Summary Table
+
+| Category | Requirement | Check Variable | Minimum Value |
+|----------|-------------|----------------|---------------|
+| **Architecture** | CPU & OS Architecture | `architecture` | 64-bit |
+| **Boot** | Boot Method | `boot_method` | UEFI |
+| **Boot** | Disk Partition Type | `disk_partition_type` | GPT |
+| **Boot** | Secure Boot | `secure_boot` | Enabled |
+| **Processor** | CPU Compatibility | `cpu_compatibility` | Intel 8th Gen+ / AMD Ryzen 2000+ |
+| **Processor** | Core Count | `cpu_core_count` | 2+ cores |
+| **Processor** | Frequency | `cpu_frequency` | 1 GHz+ |
+| **Memory** | RAM Installed | `ram_installed` | 4 GB+ |
+| **Storage** | Available Space | `storage_available` | 64 GB+ on C: |
+| **Graphics** | DirectX & WDDM | `directx_wddm2` | DirectX 12 & WDDM 2.x |
+| **Security** | TPM Version | `tmp_version` | TPM 2.0 (Enabled) |
+
+<Note>
+**All 11 requirements** must return `True` for the system to be marked as compatible and proceed with the Windows 11 upgrade.
+</Note>
+
+---
+
+## Manual Compatibility Check
+
+To manually check compatibility outside of the automation:
+
+### Using WhyNotWin11 GUI
+
+1. Download from: [https://github.com/rcmaehl/WhyNotWin11/releases](https://github.com/rcmaehl/WhyNotWin11/releases)
+2. Run `WhyNotWin11.exe`
+3. Review the checklist - all items should be green
+
+### Using Microsoft PC Health Check
+
+1. Download from: [https://aka.ms/GetPCHealthCheckApp](https://aka.ms/GetPCHealthCheckApp)
+2. Install and run the application
+3. Click "Check now" to verify compatibility
+
+### Using PowerShell
+
+Check individual requirements:
+
+```powershell
+# Check TPM
+Get-Tpm
+
+# Check Secure Boot
+Confirm-SecureBootUEFI
+
+# Check disk partition type
+Get-Disk | Select-Object Number, PartitionStyle
+
+# Check CPU details
+Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, MaxClockSpeed
+
+# Check RAM
+Get-WmiObject -Class Win32_ComputerSystem | Select-Object @{Name="RAM (GB)";Expression={[math]::Round($_.TotalPhysicalMemory/1GB,2)}}
+
+# Check DirectX version
+Get-WmiObject -Class Win32_VideoController | Select-Object Name, DriverVersion
+```
+
+---
+
+## Additional Resources
+
+- [Microsoft Windows 11 Requirements](https://www.microsoft.com/windows/windows-11-specifications)
+- [WhyNotWin11 GitHub Repository](https://github.com/rcmaehl/WhyNotWin11)
+- [TPM 2.0 Specification](https://trustedcomputinggroup.org/resource/tpm-library-specification/)
+- [Windows 11 Supported Processors](https://docs.microsoft.com/en-us/windows-hardware/design/minimum/supported/windows-11-supported-intel-processors)
+
+<Tip>
+Most modern business computers purchased after 2018 typically meet all Windows 11 requirements, though Secure Boot and TPM may need to be enabled in BIOS.
+</Tip>

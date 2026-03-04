@@ -1,0 +1,338 @@
+---
+title: Rolling Back Failed Migrations
+description: Learn how to restore systems to their pre-migration state using Windows System Restore and manual procedures
+---
+
+If a migration to Windows 11 fails or causes issues, you can restore the system to its pre-migration state. The migration playbook automatically creates a System Restore point before upgrading.
+
+## Using Windows System Restore
+
+The playbook creates a restore point named "Pre-Windows11-Migration" during Phase 1 (roles/fase_1/tasks/main.yml:188-219).
+
+### Automatic Restore Point Creation
+
+The playbook performs these steps:
+
+<Steps>
+  <Step title="Check System Protection Status">
+    Verifies if System Restore is enabled by checking for existing restore points.
+  </Step>
+  
+  <Step title="Enable System Protection">
+    If not already enabled, activates System Protection on the C: drive:
+    ```powershell
+    Enable-ComputerRestore -Drive C:
+    ```
+  </Step>
+  
+  <Step title="Create Restore Point">
+    Creates a restore point with the description "Pre-Windows11-Migration":
+    ```powershell
+    Checkpoint-Computer -Description "Pre-Windows11-Migration" -RestorePointType "MODIFY_SETTINGS"
+    ```
+  </Step>
+</Steps>
+
+### Verifying the Restore Point
+
+Before attempting rollback, confirm the restore point exists:
+
+```powershell
+Get-ComputerRestorePoint | Where-Object {$_.Description -eq "Pre-Windows11-Migration"}
+```
+
+Expected output:
+```
+SequenceNumber  : 1
+CreationTime    : 3/4/2026 10:30:00 AM
+Description     : Pre-Windows11-Migration
+RestorePointType: MODIFY_SETTINGS
+EventType       : 100
+```
+
+<Warning>
+If no restore point exists with this description, automatic rollback is not possible. You'll need to use manual recovery procedures or restore from a backup.
+</Warning>
+
+## Steps to Restore to Pre-Migration State
+
+### Method 1: GUI Restore (Recommended)
+
+<Steps>
+  <Step title="Access System Restore">
+    1. Press `Win + R` and type `rstrui.exe`
+    2. Click "Next" on the welcome screen
+  </Step>
+  
+  <Step title="Select Restore Point">
+    1. Look for "Pre-Windows11-Migration" in the list
+    2. Check "Show more restore points" if not visible
+    3. Select the restore point
+    4. Click "Scan for affected programs" to see what will change
+  </Step>
+  
+  <Step title="Confirm and Restore">
+    1. Review the changes
+    2. Click "Next" and then "Finish"
+    3. Confirm you want to proceed
+    4. The system will restart and begin restoration
+  </Step>
+  
+  <Step title="Wait for Completion">
+    The restoration process takes 20-45 minutes. The system will:
+    - Restart automatically
+    - Show restoration progress
+    - Boot back into Windows 10
+  </Step>
+</Steps>
+
+### Method 2: PowerShell Restore
+
+For remote or scripted rollback:
+
+```powershell
+# Get the restore point sequence number
+$RestorePoint = Get-ComputerRestorePoint | Where-Object {$_.Description -eq "Pre-Windows11-Migration"} | Select-Object -First 1
+
+# Initiate restore
+Restore-Computer -RestorePoint $RestorePoint.SequenceNumber -Confirm:$false
+
+# System will restart automatically
+```
+
+<Warning>
+You cannot restore from PowerShell Remoting (WinRM). This command must be run locally or via RDP.
+</Warning>
+
+### Method 3: Advanced Startup Restore
+
+If Windows 11 won't boot normally:
+
+<Steps>
+  <Step title="Access Advanced Startup">
+    - Force shutdown the PC 3 times to trigger Automatic Repair
+    - OR boot from Windows installation media and select "Repair your computer"
+  </Step>
+  
+  <Step title="Navigate to System Restore">
+    1. Click "Troubleshoot"
+    2. Select "Advanced options"
+    3. Click "System Restore"
+  </Step>
+  
+  <Step title="Select Restore Point">
+    1. Select your user account and enter password
+    2. Choose "Pre-Windows11-Migration" restore point
+    3. Click "Next" and "Finish"
+  </Step>
+</Steps>
+
+## What Gets Restored vs. What Doesn't
+
+### Restored Components
+
+<Card title="System Files" icon="check">
+- Windows system files and registry
+- Installed programs and drivers
+- System settings and configuration
+- Windows version (reverts to Windows 10)
+</Card>
+
+<Card title="Settings" icon="check">
+- User account settings
+- Network configuration
+- System restore settings
+- Installed applications from before restore point
+</Card>
+
+### NOT Restored Components
+
+<Card title="Personal Files" icon="info">
+**User documents, photos, videos, and downloads are NOT affected by System Restore.**
+
+These remain unchanged regardless of restore point.
+</Card>
+
+<Card title="After Restore Point" icon="x">
+- Files created after the restore point
+- Programs installed after the restore point
+- Windows updates applied after the restore point
+</Card>
+
+<Warning>
+Application data and settings may be inconsistent if applications were updated after the restore point was created.
+</Warning>
+
+## Troubleshooting Restore Point Issues
+
+<Accordion title="Restore Point Not Found">
+**Cause**: System Protection was disabled, or disk space was insufficient.
+
+**Solutions**:
+1. Check if System Protection is enabled:
+   ```powershell
+   Get-ComputerRestorePoint
+   ```
+
+2. Verify disk space allocation for restore points:
+   ```powershell
+   vssadmin list shadowstorage
+   ```
+
+3. If no restore points exist, use manual rollback procedures or restore from backup.
+</Accordion>
+
+<Accordion title="System Restore Fails to Complete">
+**Cause**: Corrupted restore point, insufficient disk space, or conflicting software.
+
+**Solutions**:
+1. Try a different restore point if available
+2. Free up disk space (at least 10% of C: drive)
+3. Boot into Safe Mode and try restore again:
+   ```
+   Win + R > msconfig > Boot tab > Safe boot > Minimal
+   ```
+4. Check System Restore logs:
+   ```
+   C:\Windows\System32\winevt\Logs\Application.evtx
+   ```
+   Filter by source "System Restore"
+</Accordion>
+
+<Accordion title="Error 0x80070091">
+**Cause**: System Restore cannot restore a directory or file.
+
+**Solutions**:
+1. Run System File Checker:
+   ```cmd
+   sfc /scannow
+   ```
+
+2. Run DISM to repair Windows image:
+   ```cmd
+   DISM /Online /Cleanup-Image /RestoreHealth
+   ```
+
+3. Retry System Restore after repairs complete
+</Accordion>
+
+<Accordion title="System Restore Disabled by Group Policy">
+**Cause**: Group Policy or enterprise policy disabled System Restore.
+
+**Solutions**:
+1. Check Group Policy:
+   ```
+   gpedit.msc > Computer Configuration > Administrative Templates > System > System Restore
+   ```
+
+2. Verify "Turn off System Restore" is set to "Not Configured" or "Disabled"
+
+3. Contact your system administrator if policy is enforced
+</Accordion>
+
+## Manual Rollback Procedures
+
+If System Restore is not available, use these manual methods:
+
+### Method 1: In-Place Downgrade (Within 10 Days)
+
+<Steps>
+  <Step title="Access Windows.old Folder">
+    After upgrading to Windows 11, Windows keeps the previous installation in `C:\Windows.old` for 10 days.
+  </Step>
+  
+  <Step title="Use Settings to Roll Back">
+    1. Go to Settings > System > Recovery
+    2. Look for "Go back" option under Recovery options
+    3. Select a reason for going back
+    4. Click "Go back to Windows 10"
+  </Step>
+  
+  <Step title="Wait for Rollback">
+    The process takes 20-60 minutes and restarts multiple times.
+  </Step>
+</Steps>
+
+<Warning>
+This option is only available for 10 days after upgrading. After that, Windows.old is automatically deleted.
+</Warning>
+
+### Method 2: Clean Install Windows 10
+
+If all else fails, perform a clean installation:
+
+<Steps>
+  <Step title="Backup User Data">
+    Copy all important files to external storage or cloud.
+  </Step>
+  
+  <Step title="Create Windows 10 Installation Media">
+    Use Microsoft's Media Creation Tool to create a bootable USB drive.
+  </Step>
+  
+  <Step title="Boot from Installation Media">
+    Change boot order in BIOS/UEFI to boot from USB.
+  </Step>
+  
+  <Step title="Install Windows 10">
+    Follow the installation wizard, selecting "Custom: Install Windows only (advanced)" and formatting the C: drive.
+  </Step>
+  
+  <Step title="Restore Data and Reinstall Applications">
+    After installation completes, restore your backed-up data and reinstall applications.
+  </Step>
+</Steps>
+
+<Warning>
+Clean installation will erase all data on the system drive. Ensure you have complete backups before proceeding.
+</Warning>
+
+## Preventing Future Issues
+
+<Card title="Best Practices" icon="lightbulb">
+- Always verify compatibility reports before migration
+- Maintain regular backups independent of System Restore
+- Test migration on a single system before mass deployment
+- Document system configuration before migration
+- Ensure adequate disk space (minimum 64GB free)
+</Card>
+
+## Post-Rollback Tasks
+
+After restoring to Windows 10:
+
+<Steps>
+  <Step title="Verify System Integrity">
+    ```powershell
+    sfc /scannow
+    DISM /Online /Cleanup-Image /RestoreHealth
+    ```
+  </Step>
+  
+  <Step title="Check Windows Update">
+    Ensure all Windows 10 updates are installed:
+    ```powershell
+    Get-WindowsUpdate
+    Install-WindowsUpdate -AcceptAll -AutoReboot
+    ```
+  </Step>
+  
+  <Step title="Test WinRM Connectivity">
+    From Ansible controller:
+    ```bash
+    ansible -i inventory.ini <hostname> -m win_ping
+    ```
+  </Step>
+  
+  <Step title="Review Migration Logs">
+    Analyze logs to determine why migration failed:
+    - `C:\temp\ansible\` (playbook logs)
+    - `C:\$Windows.~BT\Sources\Panther\setuperr.log` (setup errors)
+  </Step>
+</Steps>
+
+## Next Steps
+
+- Review [troubleshooting guide](/operations/troubleshooting) to address migration issues
+- Check [compatibility reports](/operations/monitoring#checking-compatibility-reports) to resolve hardware issues
+- Consider updating BIOS/UEFI firmware before retrying migration

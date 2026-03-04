@@ -1,0 +1,623 @@
+---
+title: Running the Migration Playbook
+description: Execute the Windows 10 to 11 migration and monitor progress
+---
+
+This guide covers executing the migration playbook, monitoring progress, understanding output, and reviewing generated reports.
+
+## Prerequisites
+
+Before executing the playbook, ensure:
+
+<Steps>
+  <Step title="Ansible Controller Setup">
+    - Ansible 2.9 or higher installed
+    - `ansible.windows` collection installed
+    - `community.windows` collection installed
+    - Python 3.6 or higher
+  </Step>
+  
+  <Step title="Target System Requirements">
+    - Running Windows 10 Pro
+    - WinRM enabled and configured
+    - Administrative credentials available
+    - Network connectivity to Ansible controller
+  </Step>
+  
+  <Step title="Inventory Configuration">
+    - Hosts defined in inventory file
+    - WinRM connection parameters configured
+    - Authentication credentials set (vault or variables)
+  </Step>
+  
+  <Step title="Playbook Files">
+    - Main playbook: `migra_w10_to_w11.yml`
+    - Role files: `roles/fase_1/` and `roles/fase_2/`
+    - Required binaries: WhyNotWin11.exe, WinRM.ps1
+    - ISO file (if using ISO method): Win11_23H2_Spanish_Mexico_x64v2.iso
+  </Step>
+</Steps>
+
+## Ansible Collections
+
+Install required collections:
+
+```bash
+ansible-galaxy collection install ansible.windows
+ansible-galaxy collection install community.windows
+```
+
+## Inventory Setup
+
+Create an inventory file with your target Windows systems:
+
+```ini
+# inventory/windows_hosts.ini
+[windows_migration]
+win10-pc01 ansible_host=192.168.1.100
+win10-pc02 ansible_host=192.168.1.101
+win10-pc03 ansible_host=192.168.1.102
+
+[windows_migration:vars]
+ansible_user=Administrator
+ansible_password={{ vault_ansible_password }}
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_server_cert_validation=ignore
+ansible_port=5986
+```
+
+<Tabs>
+  <Tab title="Using Vault for Credentials">
+    Store credentials securely with Ansible Vault:
+    
+    ```bash
+    # Create encrypted vault file
+    ansible-vault create inventory/vault.yml
+    ```
+    
+    In the vault file:
+    ```yaml
+    vault_ansible_password: YourSecurePassword
+    ```
+    
+    Reference in inventory:
+    ```ini
+    ansible_password={{ vault_ansible_password }}
+    ```
+  </Tab>
+  
+  <Tab title="Using Environment Variables">
+    Set credentials via environment variables:
+    
+    ```bash
+    export ANSIBLE_WINRM_USER="Administrator"
+    export ANSIBLE_WINRM_PASSWORD="YourSecurePassword"
+    ```
+    
+    In inventory:
+    ```ini
+    ansible_user={{ lookup('env', 'ANSIBLE_WINRM_USER') }}
+    ansible_password={{ lookup('env', 'ANSIBLE_WINRM_PASSWORD') }}
+    ```
+  </Tab>
+</Tabs>
+
+## Choosing the Upgrade Method
+
+Edit the playbook to select your preferred upgrade method:
+
+<Tabs>
+  <Tab title="Registry-Based Method">
+    In `migra_w10_to_w11.yml`, use:
+    
+    ```yaml
+    - name: FASE 2 - UPGRADE
+      when:
+        - compatible  # Change from 'not compatible'
+        - ansible_distribution == "Microsoft Windows 10 Pro"
+      block:
+        - name: 2 - Proceso de Upgrade
+          ansible.builtin.include_role:
+            name: fase_2
+            tasks_from: regedit_main.yml
+    ```
+    
+    <Note>
+      Remember to change the condition from `not compatible` to `compatible` for production use.
+    </Note>
+  </Tab>
+  
+  <Tab title="ISO-Based Method">
+    In `migra_w10_to_w11.yml`, use:
+    
+    ```yaml
+    - name: FASE 2 - UPGRADE
+      when:
+        - compatible  # Change from 'not compatible'
+        - ansible_distribution == "Microsoft Windows 10 Pro"
+      block:
+        - name: 2 - Proceso de Upgrade
+          ansible.builtin.include_role:
+            name: fase_2
+            tasks_from: main.yml
+    ```
+    
+    <Warning>
+      Ensure the ISO file exists at `roles/fase_2/files/Win11_23H2_Spanish_Mexico_x64v2.iso` before running.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Executing the Playbook
+
+### Basic Execution
+
+Run the playbook against your inventory:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml
+```
+
+### With Vault Password
+
+If using Ansible Vault:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml --ask-vault-pass
+```
+
+Or with a password file:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml --vault-password-file ~/.vault_pass
+```
+
+### Limiting to Specific Hosts
+
+Target only specific hosts:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml --limit win10-pc01
+```
+
+### Verbose Output
+
+Increase verbosity for troubleshooting:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml -vvv
+```
+
+Verbosity levels:
+- `-v`: Basic verbose output
+- `-vv`: More verbose output
+- `-vvv`: Very verbose output (shows connection debugging)
+- `-vvvv`: Maximum verbosity (includes SSH/WinRM debugging)
+
+### Dry Run (Check Mode)
+
+Test the playbook without making changes:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml --check
+```
+
+<Warning>
+  Check mode has limitations with Windows modules and may not accurately predict all changes, especially for upgrade tasks.
+</Warning>
+
+## Monitoring Execution Progress
+
+### Expected Output Flow
+
+<Accordion title="Phase 1: Pre-Upgrade Validation (15-60 minutes)">
+```
+PLAY [Migracion SO Windows 10 a 11] *************************************
+
+TASK [Gathering Facts] **************************************************
+ok: [win10-pc01]
+
+TASK [Crear Tarea Programada para recuperar Script WinRM] **************
+changed: [win10-pc01]
+
+TASK [FASE 1 - PRE-UPGRADE : 1.1 Validacion de Sistema Operativo] ******
+ok: [win10-pc01] => {
+    "msg": "El Sistema Operativo SI es Windows 10 Pro"
+}
+
+TASK [FASE 1 - PRE-UPGRADE : 2.1 Crear Directorio de 'WhyNotWin11'] ****
+changed: [win10-pc01]
+
+TASK [FASE 1 - PRE-UPGRADE : 2.7 Ejecutar 'WhyNotWin11'] ***************
+changed: [win10-pc01]
+
+TASK [FASE 1 - PRE-UPGRADE : 2.10 <DEBUG> - Compatibilidad del PC] *****
+ok: [win10-pc01] => {
+    "msg": [
+        "Architecture: True | Necesario: 64 Bit CPU, 64 Bit OS",
+        "Boot Method: True | Necesario: UEFI",
+        "CPU Compatibility: True | Necesario: IntelCore i5 8va Gen",
+        ...
+    ]
+}
+
+TASK [FASE 1 - PRE-UPGRADE : 3.3 Crear Punto de Restauracion] **********
+changed: [win10-pc01]
+
+TASK [FASE 1 - PRE-UPGRADE : 4.2 Aplicar parches de ser Necesario] *****
+changed: [win10-pc01]
+```
+</Accordion>
+
+<Accordion title="Phase 2: Upgrade Execution (60-120 minutes)">
+**Registry Method:**
+```
+TASK [FASE 2 - UPGRADE : 2.4 Configurar TargetProductVersion] **********
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 2.7 Reiniciar el servidor] ********************
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.2 Buscar actualizaciones manualmente] *******
+ok: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.3 Descargar actualizaciones] ****************
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.4 Instalar actualizaciones] *****************
+changed: [win10-pc01]
+```
+
+**ISO Method:**
+```
+TASK [FASE 2 - UPGRADE : 2.3 Copiar ISO a Directorio] ******************
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 2.4 Montar ISO Windows 11] ********************
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.1 Ejecutar el instalador de Windows 11] *****
+changed: [win10-pc01]
+```
+</Accordion>
+
+<Accordion title="Final Tasks and Completion (20-40 minutes)">
+```
+TASK [FASE 2 - UPGRADE : 3.5 Recoger Facts Windows 11] *****************
+ok: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.6 Datos de Sistema Operativo W11] ***********
+ok: [win10-pc01] => {
+    "msg": [
+        "Nombre de PC: WIN10-PC01",
+        "Version SO: Microsoft Windows 11 Pro",
+        "Arquitectura: 64-bit"
+    ]
+}
+
+TASK [FASE 2 - UPGRADE : 3.7 Generar reporte de Actualizacion] *********
+changed: [win10-pc01]
+
+TASK [FASE 2 - UPGRADE : 3.8 Instalar actualizaciones pendientes] ******
+changed: [win10-pc01]
+
+PLAY RECAP *************************************************************
+win10-pc01 : ok=47 changed=23 unreachable=0 failed=0 skipped=5
+```
+</Accordion>
+
+### Real-Time Monitoring
+
+Monitor playbook execution in real-time using callbacks:
+
+```bash
+# Add to ansible.cfg
+[defaults]
+callback_whitelist = timer, profile_tasks, profile_roles
+```
+
+This provides:
+- **timer**: Total playbook execution time
+- **profile_tasks**: Time taken by each task
+- **profile_roles**: Time taken by each role
+
+### Logging Output
+
+Capture execution log to file:
+
+```bash
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml | tee migration_$(date +%Y%m%d_%H%M%S).log
+```
+
+## Understanding the Output
+
+### Task Status Indicators
+
+| Status | Color | Meaning |
+|--------|-------|----------|
+| `ok` | Green | Task executed successfully, no changes made |
+| `changed` | Yellow | Task executed successfully, system was modified |
+| `skipped` | Cyan | Task was skipped due to conditional |
+| `failed` | Red | Task failed, playbook may stop |
+| `unreachable` | Red | Host is unreachable via WinRM |
+
+### Key Tasks to Monitor
+
+<Steps>
+  <Step title="Compatibility Validation">
+    Watch for the compatibility debug output showing all 11 checks as `True`.
+  </Step>
+  
+  <Step title="Restore Point Creation">
+    Ensure restore point task completes without errors.
+  </Step>
+  
+  <Step title="Registry Configuration (Registry Method)">
+    Verify all three registry keys are set successfully.
+  </Step>
+  
+  <Step title="ISO Mount (ISO Method)">
+    Check that drive letter is detected correctly.
+  </Step>
+  
+  <Step title="Upgrade Installation">
+    This task takes the longest (45-120 minutes). Watch for timeout errors.
+  </Step>
+  
+  <Step title="Post-Upgrade Facts">
+    Verify `ansible_distribution` shows "Microsoft Windows 11 Pro".
+  </Step>
+</Steps>
+
+### Handling Long-Running Tasks
+
+Some tasks run for extended periods:
+
+```
+TASK [FASE 2 - UPGRADE : 3.4 Instalar actualizaciones] *****************
+```
+
+This is normal. Ansible is waiting for Windows Update to complete. The WinRM connection is kept alive through periodic heartbeats.
+
+<Note>
+  If you see no output for 10-15 minutes during upgrade tasks, this is expected. The system is processing the upgrade.
+</Note>
+
+## Generated Reports
+
+The playbook generates detailed reports for each host:
+
+### Compatibility Report
+
+**Location**: `roles/fase_1/files/<hostname>-compatibility_report.txt`
+
+**Content**:
+```
+Reporte de Compatibilidad para: win10-pc01.domain.com
+-----------------------------------------------
+- Architecture: True
+- Boot Method: True
+- CPU Compatibility: True
+- CPU Core Count: True
+- CPU Frequency: True
+- DirectX + WDDM2: True
+- Disk Partition: True
+- Ram Installed: True
+- Secure Boot: True
+- Storage Available: True
+- TPM Version: True
+```
+
+**Usage**:
+- Review before proceeding to Phase 2
+- Keep for compliance and audit purposes
+- Use to identify incompatible systems
+
+### Upgrade Report
+
+**Location**: `roles/fase_2/files/<hostname>-upgrade_report.txt`
+
+**Content**:
+```
+Reporte de Actualizacion para: WIN10-PC01
+-----------------------------------------------
+- Version SO: Microsoft Windows 11 Pro
+- Architecture: 64-bit
+```
+
+**Usage**:
+- Verify successful upgrade
+- Document migration completion
+- Audit trail for compliance
+
+### Non-Compliant Hosts Log
+
+**Location**: `roles/fase_1/files/not_compliant_hosts.log`
+
+**Content**:
+```
+win10-old-pc.domain.com: NO es compatible con Windows 10
+```
+
+**Usage**:
+- Identify systems that failed OS validation
+- Plan remediation for incompatible systems
+- Report to stakeholders
+
+### Accessing Reports
+
+Reports are stored on the Ansible controller:
+
+```bash
+# View compatibility reports
+ls -lh roles/fase_1/files/*compatibility_report.txt
+
+# View upgrade reports
+ls -lh roles/fase_2/files/*upgrade_report.txt
+
+# View non-compliant hosts
+cat roles/fase_1/files/not_compliant_hosts.log
+
+# Generate summary of all migrations
+grep "Version SO" roles/fase_2/files/*upgrade_report.txt
+```
+
+## Post-Execution Verification
+
+After playbook completion:
+
+<Steps>
+  <Step title="Verify Windows 11 Installation">
+    ```bash
+    ansible windows_migration -i inventory/windows_hosts.ini -m ansible.windows.win_shell -a "systeminfo | findstr OS"
+    ```
+    
+    Expected output:
+    ```
+    OS Name: Microsoft Windows 11 Pro
+    OS Version: 10.0.22631 N/A Build 22631
+    ```
+  </Step>
+  
+  <Step title="Check System Uptime">
+    ```bash
+    ansible windows_migration -i inventory/windows_hosts.ini -m ansible.windows.win_shell -a "systeminfo | findstr Boot"
+    ```
+    
+    Verify the system booted recently (after upgrade).
+  </Step>
+  
+  <Step title="Validate WinRM Connectivity">
+    ```bash
+    ansible windows_migration -i inventory/windows_hosts.ini -m ansible.windows.win_ping
+    ```
+    
+    All hosts should respond with `pong`.
+  </Step>
+  
+  <Step title="Review Generated Reports">
+    Check all reports exist and contain expected information.
+  </Step>
+</Steps>
+
+## Troubleshooting Execution Issues
+
+<Accordion title="WinRM Connection Failures">
+**Symptom**: `unreachable` status, connection timeout errors
+
+**Solutions**:
+- Verify WinRM service is running: `ansible <host> -m ansible.windows.win_service -a "name=WinRM"`
+- Test connectivity: `telnet <host> 5986`
+- Check firewall rules on target system
+- Verify credentials in inventory
+- Test with basic command: `ansible <host> -m ansible.windows.win_ping`
+- Review WinRM configuration: `winrm get winrm/config`
+</Accordion>
+
+<Accordion title="Playbook Hangs During Upgrade">
+**Symptom**: No output for extended periods (>30 minutes)
+
+**Solutions**:
+- Increase WinRM timeout in `ansible.cfg`:
+  ```ini
+  [defaults]
+  timeout = 3600
+  ```
+- Check target system console for upgrade progress
+- Verify system hasn't encountered errors requiring manual intervention
+- Review upgrade logs on target: `C:\Windows\Logs\WindowsUpdate`
+- If truly hung, manually reboot and retry from restore point
+</Accordion>
+
+<Accordion title="Task Failures Due to Pending Reboots">
+**Symptom**: Tasks fail with reboot required messages
+
+**Solutions**:
+- Playbook should handle reboots automatically
+- If manual intervention needed, reboot and re-run playbook (it's idempotent)
+- Check for pending file operations: `Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name PendingFileRenameOperations`
+</Accordion>
+
+<Accordion title="Insufficient Disk Space">
+**Symptom**: Upgrade fails with disk space errors
+
+**Solutions**:
+- Windows 11 requires at least 64 GB free space
+- Clean temporary files: `cleanmgr.exe`
+- Remove old Windows updates: `Dism.exe /online /Cleanup-Image /StartComponentCleanup`
+- Delete old restore points (except the migration one)
+- Move page file to another drive temporarily
+</Accordion>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Test First" icon="flask">
+    Always test on non-production systems first to validate the process and timing.
+  </Card>
+  
+  <Card title="Batch Migrations" icon="layer-group">
+    Migrate systems in small batches (5-10 at a time) to manage load and troubleshooting.
+  </Card>
+  
+  <Card title="Schedule Wisely" icon="clock">
+    Run during maintenance windows or off-hours. Budget 3-5 hours per system.
+  </Card>
+  
+  <Card title="Keep Backups" icon="hard-drive">
+    Ensure full system backups exist before starting migration.
+  </Card>
+  
+  <Card title="Monitor Resources" icon="chart-line">
+    Watch Ansible controller resources when running large batches.
+  </Card>
+  
+  <Card title="Document Everything" icon="file-alt">
+    Keep execution logs and generated reports for audit purposes.
+  </Card>
+</CardGroup>
+
+## Example Execution Session
+
+Complete example of a successful migration:
+
+```bash
+# 1. Test connectivity
+ansible windows_migration -i inventory/windows_hosts.ini -m ansible.windows.win_ping
+
+# 2. Run the migration (with logging)
+ansible-playbook -i inventory/windows_hosts.ini migra_w10_to_w11.yml \
+  --ask-vault-pass \
+  -vv | tee migration_$(date +%Y%m%d_%H%M%S).log
+
+# 3. Verify completion
+ansible windows_migration -i inventory/windows_hosts.ini \
+  -m ansible.windows.win_shell \
+  -a "systeminfo | findstr 'OS Name'"
+
+# 4. Review reports
+cat roles/fase_2/files/*upgrade_report.txt
+
+# 5. Generate summary
+echo "Migration Summary:"
+grep -l "Windows 11" roles/fase_2/files/*upgrade_report.txt | wc -l
+echo "systems successfully migrated"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Phase 1 Details" icon="magnifying-glass" href="/guide/phase-1-validation">
+    Deep dive into validation and compatibility checks
+  </Card>
+  <Card title="Phase 2 Details" icon="rocket" href="/guide/phase-2-upgrade">
+    Understand upgrade methods and processes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/reference/variables">
+    Configure variables and customize behavior
+  </Card>
+  <Card title="Roles Reference" icon="sitemap" href="/reference/roles/fase-1">
+    Learn about the automation roles
+  </Card>
+</CardGroup>

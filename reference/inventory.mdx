@@ -1,0 +1,201 @@
+---
+title: Inventory Configuration
+description: Configure the Ansible inventory file for Windows hosts
+---
+
+## Overview
+
+The `maquinas` inventory file defines the Windows hosts that will be migrated from Windows 10 to Windows 11. It contains host definitions, connection parameters, and WinRM configuration required for Ansible to communicate with Windows machines.
+
+## File Location
+
+The inventory file is located at the root of the project:
+
+```
+maquinas
+```
+
+## Inventory Structure
+
+The inventory file uses the INI format with host groups and variables:
+
+```ini
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+ansible_port = 5986
+ansible_connection = winrm
+ansible_winrm_transport = ntlm
+ansible_winrm_server_cert_validation = ignore
+
+[windows_sql]
+w10
+```
+
+## Configuration Parameters
+
+### WinRM Connection Variables
+
+<ParamField path="ansible_user" type="string" required>
+  The username for authenticating to Windows hosts.
+  
+  **Example:** `ansible`
+</ParamField>
+
+<ParamField path="ansible_password" type="string" required>
+  The password for the specified user account.
+  
+  **Example:** `ansible123`
+  
+  <Warning>Store sensitive passwords securely using Ansible Vault in production environments.</Warning>
+</ParamField>
+
+<ParamField path="ansible_port" type="integer" default="5986">
+  The WinRM HTTPS port for secure connections.
+  
+  **Options:**
+  - `5985` - HTTP (not recommended for production)
+  - `5986` - HTTPS (recommended)
+</ParamField>
+
+<ParamField path="ansible_connection" type="string" default="winrm">
+  The connection plugin to use for Windows hosts.
+  
+  **Value:** `winrm`
+</ParamField>
+
+<ParamField path="ansible_winrm_transport" type="string" default="ntlm">
+  The authentication transport mechanism for WinRM.
+  
+  **Options:**
+  - `ntlm` - NTLM authentication (most common)
+  - `kerberos` - Kerberos authentication
+  - `basic` - Basic authentication (requires HTTPS)
+  - `certificate` - Certificate-based authentication
+</ParamField>
+
+<ParamField path="ansible_winrm_server_cert_validation" type="string" default="validate">
+  Controls SSL certificate validation for WinRM connections.
+  
+  **Options:**
+  - `validate` - Validate SSL certificates (recommended for production)
+  - `ignore` - Skip SSL certificate validation (development/testing only)
+</ParamField>
+
+## Adding Multiple Hosts
+
+To add multiple Windows hosts to the inventory, list each hostname on a separate line under the group:
+
+```ini
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+ansible_port = 5986
+ansible_connection = winrm
+ansible_winrm_transport = ntlm
+ansible_winrm_server_cert_validation = ignore
+
+[windows_sql]
+w10-machine-01
+w10-machine-02
+w10-machine-03
+w10-server-lab
+```
+
+## Host Groups and Variables
+
+### Group Variables
+
+Variables defined in the `[group_name:vars]` section apply to all hosts in that group:
+
+```ini
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+```
+
+### Multiple Groups
+
+You can create multiple groups for different environments or host types:
+
+```ini
+[production:vars]
+ansible_user = prod_ansible
+ansible_password = prod_pass123
+ansible_port = 5986
+ansible_connection = winrm
+ansible_winrm_transport = kerberos
+ansible_winrm_server_cert_validation = validate
+
+[production]
+prod-w10-01
+prod-w10-02
+
+[development:vars]
+ansible_user = dev_ansible
+ansible_password = dev_pass123
+ansible_port = 5986
+ansible_connection = winrm
+ansible_winrm_transport = ntlm
+ansible_winrm_server_cert_validation = ignore
+
+[development]
+dev-w10-01
+dev-w10-02
+```
+
+## Host-Specific Variables
+
+To override group variables for specific hosts, use inline variables:
+
+```ini
+[windows_sql:vars]
+ansible_user = ansible
+ansible_password = ansible123
+ansible_port = 5986
+
+[windows_sql]
+w10-standard
+w10-custom ansible_user=custom_user ansible_password=custom_pass
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Ansible Vault for Passwords">
+    Encrypt sensitive data like passwords using Ansible Vault:
+    
+    ```bash
+    ansible-vault encrypt_string 'ansible123' --name 'ansible_password'
+    ```
+    
+    Then reference the encrypted value in your inventory or variables file.
+  </Accordion>
+  
+  <Accordion title="Use HTTPS for WinRM">
+    Always use port 5986 (HTTPS) for production environments to ensure encrypted communication with Windows hosts.
+  </Accordion>
+  
+  <Accordion title="Organize by Environment">
+    Create separate host groups for different environments (production, staging, development) to avoid accidental deployments.
+  </Accordion>
+  
+  <Accordion title="Test Connectivity">
+    Verify WinRM connectivity before running the migration:
+    
+    ```bash
+    ansible all -m win_ping
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Configuration
+
+<CardGroup cols={2}>
+  <Card title="Ansible Configuration" icon="gear" href="/reference/ansible-config">
+    Configure global Ansible settings in ansible.cfg
+  </Card>
+  <Card title="Variables" icon="sliders" href="/reference/variables">
+    Learn about role variables and customization
+  </Card>
+</CardGroup>

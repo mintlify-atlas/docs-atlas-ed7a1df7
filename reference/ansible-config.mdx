@@ -1,0 +1,341 @@
+---
+title: Ansible Configuration
+description: Configure Ansible settings for Windows 10 to 11 migration
+---
+
+## Overview
+
+The `ansible.cfg` file contains global configuration settings for Ansible automation. It defines default behaviors, inventory location, connection settings, and other operational parameters.
+
+## File Location
+
+The configuration file is located at the root of the project:
+
+```
+ansible.cfg
+```
+
+## Configuration File
+
+The current configuration is minimal and sets the default inventory file:
+
+```ini
+[defaults]
+inventory=maquinas
+```
+
+## Configuration Sections
+
+### [defaults] Section
+
+The `[defaults]` section contains general Ansible configuration options.
+
+<ParamField path="inventory" type="string" default="/etc/ansible/hosts">
+  Specifies the default inventory file path.
+  
+  **Current value:** `maquinas`
+  
+  **Effect:** Ansible will automatically use the `maquinas` inventory file without requiring the `-i` flag.
+</ParamField>
+
+## Recommended WinRM Settings
+
+For Windows automation with WinRM, consider adding these settings to `ansible.cfg`:
+
+```ini
+[defaults]
+inventory=maquinas
+host_key_checking = False
+timeout = 30
+
+[winrm]
+# WinRM-specific timeouts
+operation_timeout_sec = 60
+read_timeout_sec = 70
+```
+
+### WinRM-Specific Parameters
+
+<ParamField path="host_key_checking" type="boolean" default="true">
+  Controls SSH host key verification.
+  
+  **Recommended for WinRM:** `False` (SSH host keys don't apply to WinRM connections)
+</ParamField>
+
+<ParamField path="timeout" type="integer" default="10">
+  Connection timeout in seconds.
+  
+  **Recommended:** `30` for Windows hosts (longer than default to account for WinRM connection establishment)
+</ParamField>
+
+<ParamField path="operation_timeout_sec" type="integer" default="20">
+  Maximum time in seconds for WinRM operations to complete.
+  
+  **Recommended:** `60` or higher for long-running Windows operations like updates
+</ParamField>
+
+<ParamField path="read_timeout_sec" type="integer" default="30">
+  Maximum time in seconds to wait for WinRM response data.
+  
+  **Recommended:** `70` (should be greater than `operation_timeout_sec`)
+</ParamField>
+
+## Additional Useful Settings
+
+### Performance and Parallelism
+
+```ini
+[defaults]
+inventory=maquinas
+host_key_checking = False
+timeout = 30
+forks = 5
+```
+
+<ParamField path="forks" type="integer" default="5">
+  Number of parallel processes to use when communicating with remote hosts.
+  
+  **Usage:**
+  - `5` - Default, good for most environments
+  - `10` or higher - For larger deployments with many hosts
+  - `1` - Serial execution, useful for troubleshooting
+</ParamField>
+
+### Logging Configuration
+
+```ini
+[defaults]
+inventory=maquinas
+host_key_checking = False
+timeout = 30
+log_path = ./ansible.log
+```
+
+<ParamField path="log_path" type="string">
+  Path to the Ansible log file.
+  
+  **Example:** `./ansible.log`
+  
+  **Effect:** All playbook execution details will be logged to the specified file for troubleshooting and audit purposes.
+</ParamField>
+
+### Retry Settings
+
+```ini
+[defaults]
+inventory=maquinas
+host_key_checking = False
+timeout = 30
+retry_files_enabled = True
+retry_files_save_path = ./retry
+```
+
+<ParamField path="retry_files_enabled" type="boolean" default="true">
+  Controls whether Ansible creates retry files for failed hosts.
+  
+  **Usage:**
+  - `True` - Creates `.retry` files listing failed hosts (useful for re-running only failed hosts)
+  - `False` - Disables retry file creation
+</ParamField>
+
+<ParamField path="retry_files_save_path" type="string" default="./">
+  Directory where retry files are saved.
+  
+  **Recommended:** `./retry` to organize retry files in a dedicated directory
+</ParamField>
+
+## Complete Recommended Configuration
+
+For Windows 10 to 11 migration, here's a complete recommended `ansible.cfg`:
+
+```ini
+[defaults]
+# Inventory
+inventory = maquinas
+
+# Connection settings
+host_key_checking = False
+timeout = 30
+
+# Performance
+forks = 5
+
+# Logging
+log_path = ./ansible.log
+
+# Retry configuration
+retry_files_enabled = True
+retry_files_save_path = ./retry
+
+# Display settings
+stdout_callback = yaml
+bin_ansible_callbacks = True
+
+[winrm]
+# WinRM timeouts for long-running operations
+operation_timeout_sec = 120
+read_timeout_sec = 130
+```
+
+### Additional Parameters Explained
+
+<ParamField path="stdout_callback" type="string" default="default">
+  Controls the format of playbook output.
+  
+  **Options:**
+  - `default` - Standard Ansible output
+  - `yaml` - YAML-formatted output (more readable)
+  - `json` - JSON-formatted output
+  - `minimal` - Minimal output
+</ParamField>
+
+<ParamField path="bin_ansible_callbacks" type="boolean" default="false">
+  Enables additional callback plugins.
+  
+  **Recommended:** `True` for better output formatting with `stdout_callback`
+</ParamField>
+
+## Environment-Specific Configurations
+
+You can create different configuration files for different environments:
+
+### Production Configuration
+
+**ansible-prod.cfg:**
+```ini
+[defaults]
+inventory = inventory/production
+host_key_checking = False
+timeout = 60
+forks = 10
+log_path = /var/log/ansible/production.log
+
+[winrm]
+operation_timeout_sec = 180
+read_timeout_sec = 190
+```
+
+Use with:
+```bash
+ANSIBLE_CONFIG=ansible-prod.cfg ansible-playbook migra_w10_to_w11.yml
+```
+
+### Development Configuration
+
+**ansible-dev.cfg:**
+```ini
+[defaults]
+inventory = inventory/development
+host_key_checking = False
+timeout = 30
+forks = 2
+log_path = ./logs/dev.log
+verbosity = 2
+
+[winrm]
+operation_timeout_sec = 60
+read_timeout_sec = 70
+```
+
+## Configuration Precedence
+
+Ansible searches for configuration files in the following order (highest precedence first):
+
+1. `ANSIBLE_CONFIG` environment variable
+2. `ansible.cfg` in the current directory
+3. `~/.ansible.cfg` in the user's home directory
+4. `/etc/ansible/ansible.cfg` system-wide configuration
+
+<Tip>
+  Keep `ansible.cfg` in your project directory (option 2) for project-specific settings that travel with your codebase.
+</Tip>
+
+## Testing Configuration
+
+Verify your Ansible configuration:
+
+```bash
+# Show current configuration
+ansible-config dump
+
+# List all config settings
+ansible-config list
+
+# View effective configuration
+ansible-config view
+```
+
+Test WinRM connectivity:
+
+```bash
+# Ping all Windows hosts
+ansible all -m win_ping
+
+# Get verbose output
+ansible all -m win_ping -vvv
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="WinRM Connection Timeouts">
+    If you experience connection timeouts:
+    
+    1. Increase timeout values in `ansible.cfg`:
+       ```ini
+       [defaults]
+       timeout = 60
+       
+       [winrm]
+       operation_timeout_sec = 180
+       read_timeout_sec = 190
+       ```
+    
+    2. Verify WinRM is running on Windows host:
+       ```powershell
+       Get-Service WinRM
+       ```
+    
+    3. Test WinRM listener:
+       ```powershell
+       winrm enumerate winrm/config/listener
+       ```
+  </Accordion>
+  
+  <Accordion title="Slow Playbook Execution">
+    For large migrations with many hosts:
+    
+    1. Increase parallel execution:
+       ```ini
+       [defaults]
+       forks = 10
+       ```
+    
+    2. Consider running in batches:
+       ```bash
+       ansible-playbook migra_w10_to_w11.yml --limit "w10-01,w10-02,w10-03"
+       ```
+  </Accordion>
+  
+  <Accordion title="Certificate Validation Errors">
+    If using self-signed certificates:
+    
+    1. In inventory, set:
+       ```ini
+       ansible_winrm_server_cert_validation = ignore
+       ```
+    
+    2. For production, configure proper SSL certificates on Windows hosts
+  </Accordion>
+</AccordionGroup>
+
+## Related Configuration
+
+<CardGroup cols={2}>
+  <Card title="Inventory" icon="server" href="/reference/inventory">
+    Configure Windows hosts and WinRM connection parameters
+  </Card>
+  <Card title="Variables" icon="sliders" href="/reference/variables">
+    Learn about role variables and customization
+  </Card>
+</CardGroup>
